@@ -41,12 +41,14 @@ public enum ConversionOutputValidator {
 
     /// 生成が紛れ込ませた先頭・末尾の改行だけを取り除く。
     /// 内部の空白・改行は意図的なものとして保持する。
+    /// CRLF は Swift では 1 つの書記素クラスタになるため、個別の文字比較では
+    /// なく Character.isNewline で判定する。
     static func trimLineEndings(_ text: String) -> String {
         var result = Substring(text)
-        while let first = result.first, first == "\n" || first == "\r" {
+        while let first = result.first, first.isNewline {
             result.removeFirst()
         }
-        while let last = result.last, last == "\n" || last == "\r" {
+        while let last = result.last, last.isNewline {
             result.removeLast()
         }
         return String(result)
