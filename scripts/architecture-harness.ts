@@ -1,0 +1,582 @@
+#!/usr/bin/env bun
+/**
+ * Architecture Harness — リポジトリ全体の invariant を機械的に検証する。
+ *
+ * 設計:
+ * - 依存ゼロ (Bun ランタイム + 標準モジュールのみ)
+ * - invariant は本ファイル先頭の RULES に並べる。追加は RULES への push のみで完結する
+ * - 実行は `--staged` (git ステージ済の変更だけ) または全件スキャンの 2 モード
+ * - `--fail-on=error|warning` で exit code を制御 (CI / pre-commit hook 用)
+ * - 出力は markdown 1 形式 (TenkaCloud の architecture-harness と互換)
+ *
+ * Invariant の正本は docs/architecture/harness.md。本ファイルはあくまで自動検出器。
+ * docs にあるが script で検出できない invariant は、コードレビューで担保する。
+ */
+
+import { execFileSync } from 'node:child_process';
+import { readFile, readdir, stat } from 'node:fs/promises';
+import path from 'node:path';
+
+type Severity = 'error' | 'warning';
+
+interface Finding {
+  rule: string;
+  severity: Severity;
+  file: string;
+  line?: number;
+  message: string;
+}
+
+interface Rule {
+  id: string;
+  description: string;
+  // ファイル単位のチェック (false を返したら skip)
+  scope: (filePath: string) => boolean;
+  check: (file: { path: string; content: string }) => Finding[];
+}
+
+interface RepoCheck {
+  id: string;
+  description: string;
+  check: (root: string) => Promise<Finding[]>;
+}
+
+// --- File-level invariants ---
+
+const RULES: Rule[] = [
+  {
+    id: 'INVARIANT_NO_NPX',
+    description: 'npx ではなく nlx / bunx を使う',
+    scope: (p) =>
+      p.endsWith('package.json') ||
+      p.endsWith('.sh') ||
+      p.endsWith('.yml') ||
+      p.endsWith('.yaml'),
+    check: ({ path: filePath, content }) => {
+      const findings: Finding[] = [];
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // `npx ` (空白付き) を検出。`bunx`/`nlx` は許可。コメントの可能性は許容して error 扱い。
+        if (/(^|\s|"|`|\$\()npx\s/.test(line)) {
+          findings.push({
+            rule: 'INVARIANT_NO_NPX',
+            severity: 'error',
+            file: filePath,
+            line: i + 1,
+            message: 'npx は禁止。nlx または bunx を使う',
+          });
+        }
+      }
+      return findings;
+    },
+  },
+  {
+    id: 'INVARIANT_NO_MOCK_DATA',
+    description: 'アプリケーション実装にスタブ/モックデータを混ぜない',
+    scope: (p) =>
+      (p.startsWith('packages/') || p.startsWith('src/')) &&
+      /\.(ts|tsx|js|jsx)$/.test(p) &&
+      !/\.(test|spec)\.(ts|tsx|js|jsx)$/.test(p) &&
+      !/__mocks__|__fixtures__|test\//.test(p),
+    check: ({ path: filePath, content }) => {
+      const findings: Finding[] = [];
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/\b(MOCK_[A-Z_]+|mockData|stubApi|fakeUsers)\b/.test(line)) {
+          findings.push({
+            rule: 'INVARIANT_NO_MOCK_DATA',
+            severity: 'error',
+            file: filePath,
+            line: i + 1,
+            message:
+              'アプリ実装に mock/stub/fake データを置かない (テストでは Real DB / Real API を使う)',
+          });
+        }
+      }
+      return findings;
+    },
+  },
+  {
+    id: 'INVARIANT_NO_TEST_FOCUS',
+    description: 'コミット前に .only / .skip / xit / xdescribe を残さない',
+    scope: (p) => /\.(test|spec)\.(ts|tsx|js|jsx)$/.test(p),
+    check: ({ path: filePath, content }) => {
+      const findings: Finding[] = [];
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (
+          /\b(it|test|describe)\.(only|skip)\b/.test(line) ||
+          /\b(xit|xdescribe)\s*\(/.test(line)
+        ) {
+          findings.push({
+            rule: 'INVARIANT_NO_TEST_FOCUS',
+            severity: 'error',
+            file: filePath,
+            line: i + 1,
+            message:
+              'テストの .only / .skip / xit / xdescribe をコミット前に外す',
+          });
+        }
+      }
+      return findings;
+    },
+  },
+  {
+    id: 'INVARIANT_INSTALL_IGNORE_SCRIPTS',
+    description:
+      'パッケージインストールは --ignore-scripts 付きで叩く (Shai-Hulud 系 lifecycle 攻撃対策)',
+    scope: (p) =>
+      p === 'Makefile' ||
+      p.endsWith('.mk') ||
+      p.endsWith('.sh') ||
+      p.endsWith('.yml') ||
+      p.endsWith('.yaml') ||
+      p.endsWith('Dockerfile') ||
+      /(^|\/)Dockerfile(\.|$)/.test(p),
+    check: ({ path: filePath, content }) => {
+      const findings: Finding[] = [];
+      const lines = content.split('\n');
+      // (bun|npm|pnpm|yarn) install ... のうち --ignore-scripts を含まない行を検出。
+      // 例外: コメント行、`npm install -g typescript` のようなグローバルインストールはここでは
+      // 同じ扱い (危険なので明示的に --ignore-scripts を付けさせる)。
+      for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        const line = raw.replace(/#.*$/, '').trim();
+        if (!line) continue;
+        if (!/\b(bun|npm|pnpm|yarn)\s+install\b/.test(line)) continue;
+        // `bun install` 系で --ignore-scripts も無く trustedDependencies コメントも無い行は error
+        if (/--ignore-scripts\b/.test(line)) continue;
+        // `bun install <pkg> --frozen-lockfile` のような行も対象。
+        findings.push({
+          rule: 'INVARIANT_INSTALL_IGNORE_SCRIPTS',
+          severity: 'error',
+          file: filePath,
+          line: i + 1,
+          message:
+            'install コマンドに --ignore-scripts を付ける (lifecycle script 経由のサプライチェーン攻撃を封じる)',
+        });
+      }
+      return findings;
+    },
+  },
+  {
+    id: 'INVARIANT_NO_GIT_DEPENDENCY',
+    description:
+      'package.json の依存は npm レジストリ経由のみ (git/github/任意 URL を避ける)',
+    scope: (p) => p === 'package.json' || /\/package\.json$/.test(p),
+    check: ({ path: filePath, content }) => {
+      const findings: Finding[] = [];
+      let pkg: Record<string, unknown>;
+      try {
+        pkg = JSON.parse(content);
+      } catch {
+        return findings; // 壊れた JSON は別ルールで検出される
+      }
+      const sections = [
+        'dependencies',
+        'devDependencies',
+        'optionalDependencies',
+        'peerDependencies',
+      ] as const;
+      // version specifier の許可形 — registry-style のみ。
+      // semver ranges, ^x.y.z, ~x.y.z, x.y.z, *, latest, workspace:* など
+      const ALLOWED =
+        /^(workspace:|catalog:|npm:|file:packages\/|[\^~><=*]|\d|latest$|\*$)/;
+      for (const section of sections) {
+        const deps = pkg[section];
+        if (!deps || typeof deps !== 'object') continue;
+        for (const [name, spec] of Object.entries(
+          deps as Record<string, string>
+        )) {
+          if (typeof spec !== 'string') continue;
+          if (ALLOWED.test(spec)) continue;
+          // git+, github:, gitlab:, http(s)://, file: (workspace 例外は上で通している) など
+          if (
+            /^(git\+|git:|github:|gitlab:|bitbucket:|https?:|file:|link:)/.test(
+              spec
+            )
+          ) {
+            findings.push({
+              rule: 'INVARIANT_NO_GIT_DEPENDENCY',
+              severity: 'error',
+              file: filePath,
+              message: `${section}.${name} がレジストリ外参照 (${spec}) — Shai-Hulud 2nd 系は github URL の optionalDependencies で侵入する。レジストリ公開版を使う`,
+            });
+            continue;
+          }
+          // 想定外のフォーマットは警告止まりにとどめる (将来の表記ゆれを許容)
+          findings.push({
+            rule: 'INVARIANT_NO_GIT_DEPENDENCY',
+            severity: 'warning',
+            file: filePath,
+            message: `${section}.${name} の version 表記 (${spec}) を確認。レジストリ semver 以外は避ける`,
+          });
+        }
+      }
+      return findings;
+    },
+  },
+  {
+    id: 'INVARIANT_NO_KNOWN_IOC',
+    description:
+      'Shai-Hulud 系の既知 IOC (tanstack_runner.js / router_init.js / gh-token-monitor 等) をリポジトリに混入させない',
+    scope: (p) => {
+      // ファイル名で判定 (内容は読み込まない)。下の check は file path のみを見る。
+      const name = p.split('/').pop() ?? p;
+      return (
+        /^tanstack_runner\.(js|cjs|mjs|ts)$/.test(name) ||
+        /^router_init\.(js|cjs|mjs|ts)$/.test(name) ||
+        /^gh[-_]token[-_]monitor\.(plist|service|sh|js|ts)$/i.test(name) ||
+        /^com\.user\.gh-token-monitor\.plist$/.test(name) ||
+        /^codeql_analysis\.ya?ml$/.test(name) ||
+        // .claude/setup.mjs / .vscode/setup.mjs は Wave 2 が永続化に使うファイル
+        p === '.claude/setup.mjs' ||
+        p === '.vscode/setup.mjs'
+      );
+    },
+    check: ({ path: filePath }) => [
+      {
+        rule: 'INVARIANT_NO_KNOWN_IOC',
+        severity: 'error' as Severity,
+        file: filePath,
+        message:
+          'Shai-Hulud 2nd 等で観測された IOC (Indicator of Compromise) のファイル名と一致。リポジトリに混入していないか確認',
+      },
+    ],
+  },
+  {
+    id: 'INVARIANT_LIFECYCLE_HOOK_SCOPED',
+    description:
+      'package.json の lifecycle hook (preinstall/postinstall/prepare/postprepare) は許可リスト内のコマンドのみ',
+    scope: (p) => p === 'package.json' || /\/package\.json$/.test(p),
+    check: ({ path: filePath, content }) => {
+      const findings: Finding[] = [];
+      let pkg: Record<string, unknown>;
+      try {
+        pkg = JSON.parse(content);
+      } catch {
+        return findings;
+      }
+      const scripts = pkg.scripts;
+      if (!scripts || typeof scripts !== 'object') return findings;
+      const HOOKS = [
+        'preinstall',
+        'install',
+        'postinstall',
+        'prepare',
+        'postprepare',
+        'preprepare',
+      ];
+      // 許可: husky (hook setup), 空文字, "echo ..." 程度
+      const ALLOW = /^(husky( |$)|echo( |$)|: ?$|true$)/;
+      for (const hook of HOOKS) {
+        const cmd = (scripts as Record<string, string>)[hook];
+        if (typeof cmd !== 'string') continue;
+        if (ALLOW.test(cmd.trim())) continue;
+        findings.push({
+          rule: 'INVARIANT_LIFECYCLE_HOOK_SCOPED',
+          severity: 'error',
+          file: filePath,
+          message: `scripts.${hook} = "${cmd}" — lifecycle hook は許可リスト (husky 等) のみ。攻撃面を増やす任意処理は別 script に分けて手動実行する`,
+        });
+      }
+      return findings;
+    },
+  },
+];
+
+// --- Repository-level invariants ---
+
+const REPO_CHECKS: RepoCheck[] = [
+  {
+    id: 'INVARIANT_HARNESS_DOC_AUTHORITATIVE',
+    description: 'harness 正本ドキュメントが存在し空でない',
+    check: async (root) => {
+      const harnessPath = path.join(root, 'docs/architecture/harness.md');
+      try {
+        const stats = await stat(harnessPath);
+        if (stats.size < 100) {
+          return [
+            {
+              rule: 'INVARIANT_HARNESS_DOC_AUTHORITATIVE',
+              severity: 'error',
+              file: 'docs/architecture/harness.md',
+              message:
+                'harness.md が空、または極端に短い。invariant を明文化すること',
+            },
+          ];
+        }
+      } catch {
+        return [
+          {
+            rule: 'INVARIANT_HARNESS_DOC_AUTHORITATIVE',
+            severity: 'error',
+            file: 'docs/architecture/harness.md',
+            message: 'docs/architecture/harness.md が存在しない',
+          },
+        ];
+      }
+      return [];
+    },
+  },
+  {
+    id: 'INVARIANT_ADR_TEMPLATE_PRESENT',
+    description: 'ADR テンプレート (docs/adr/0000-template.md) が存在する',
+    check: async (root) => {
+      try {
+        await stat(path.join(root, 'docs/adr/0000-template.md'));
+        return [];
+      } catch {
+        return [
+          {
+            rule: 'INVARIANT_ADR_TEMPLATE_PRESENT',
+            severity: 'warning',
+            file: 'docs/adr/0000-template.md',
+            message:
+              'ADR テンプレートが見つからない。新規 ADR を書く際の正本として用意する',
+          },
+        ];
+      }
+    },
+  },
+  {
+    id: 'INVARIANT_FOLLOWUP_SKILL_PRESENT',
+    description:
+      'フォローアップ管理スキル (.claude/skills/follow-up/SKILL.md) が存在する (scope外発見の受け皿)',
+    check: async (root) => {
+      try {
+        await stat(path.join(root, '.claude/skills/follow-up/SKILL.md'));
+        return [];
+      } catch {
+        return [
+          {
+            rule: 'INVARIANT_FOLLOWUP_SKILL_PRESENT',
+            severity: 'warning',
+            file: '.claude/skills/follow-up/SKILL.md',
+            message:
+              '/follow-up スキルが見つからない。PR の scope 外発見を記録する仕組みを用意する',
+          },
+        ];
+      }
+    },
+  },
+  {
+    id: 'INVARIANT_LOCKFILE_NO_GIT_RESOLUTION',
+    description:
+      'bun.lock / package-lock.json / pnpm-lock.yaml に github / git+ 解決された依存が無い',
+    check: async (root) => {
+      const findings: Finding[] = [];
+      const lockfiles = [
+        'bun.lock',
+        'bun.lockb',
+        'package-lock.json',
+        'pnpm-lock.yaml',
+        'yarn.lock',
+      ];
+      for (const name of lockfiles) {
+        const p = path.join(root, name);
+        try {
+          await stat(p);
+        } catch {
+          continue;
+        }
+        if (name === 'bun.lockb') {
+          // バイナリロックファイルは grep できないため、警告のみ
+          findings.push({
+            rule: 'INVARIANT_LOCKFILE_NO_GIT_RESOLUTION',
+            severity: 'warning',
+            file: name,
+            message:
+              'bun.lockb はバイナリ形式で静的検査が難しい。bunfig.toml saveTextLockfile=true で bun.lock (text) に切り替えるとサプライチェーン監査がやりやすい',
+          });
+          continue;
+        }
+        let content: string;
+        try {
+          content = await readFile(p, 'utf8');
+        } catch {
+          continue;
+        }
+        // git+ / github: / 任意の git URL で解決された行を検出
+        const suspicious =
+          /(git\+ssh:|git\+https?:|git:\/\/|github\.com\/[^/\s"']+\/[^/\s"']+(\.git)?#|resolved":\s*"git\+|resolution":\s*\{[^}]*"type":\s*"git")/i;
+        if (suspicious.test(content)) {
+          findings.push({
+            rule: 'INVARIANT_LOCKFILE_NO_GIT_RESOLUTION',
+            severity: 'error',
+            file: name,
+            message: `${name} に git/github で解決された依存がある。Shai-Hulud 2nd は optionalDependencies + github URL で侵入する。レジストリ公開版に切り替える`,
+          });
+        }
+      }
+      return findings;
+    },
+  },
+  {
+    id: 'INVARIANT_SUPPLY_CHAIN_CONFIG_PRESENT',
+    description:
+      'bunfig.toml に trustedDependencies = [] が明示されている (Bun の暗黙信頼を空にする)',
+    check: async (root) => {
+      const findings: Finding[] = [];
+      const bunfigPath = path.join(root, 'bunfig.toml');
+      try {
+        const content = await readFile(bunfigPath, 'utf8');
+        if (!/trustedDependencies\s*=\s*\[\s*\]/m.test(content)) {
+          findings.push({
+            rule: 'INVARIANT_SUPPLY_CHAIN_CONFIG_PRESENT',
+            severity: 'error',
+            file: 'bunfig.toml',
+            message:
+              'bunfig.toml に trustedDependencies = [] が無い。Bun は top 500 npm パッケージを暗黙信頼するため、明示的に空配列で上書きする',
+          });
+        }
+      } catch {
+        findings.push({
+          rule: 'INVARIANT_SUPPLY_CHAIN_CONFIG_PRESENT',
+          severity: 'error',
+          file: 'bunfig.toml',
+          message:
+            'bunfig.toml が存在しない。Bun の trustedDependencies = [] を明示する正本として置く',
+        });
+      }
+      return findings;
+    },
+  },
+];
+
+// --- File walking ---
+
+const SKIP_DIRS = new Set([
+  'node_modules',
+  '.git',
+  '.next',
+  'coverage',
+  'dist',
+  'build',
+  'out',
+  '.turbo',
+  '.cache',
+]);
+
+async function walkRepo(root: string): Promise<string[]> {
+  const out: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (SKIP_DIRS.has(entry.name)) continue;
+        await walk(path.join(dir, entry.name));
+        continue;
+      }
+      const rel = path.relative(root, path.join(dir, entry.name));
+      out.push(rel);
+    }
+  }
+  await walk(root);
+  return out;
+}
+
+function listStagedFiles(root: string): string[] {
+  const output = execFileSync(
+    'git',
+    ['diff', '--cached', '--name-only', '--diff-filter=ACMR'],
+    { cwd: root, encoding: 'utf8' }
+  );
+  return output
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+// --- CLI ---
+
+interface CliOptions {
+  root: string;
+  staged: boolean;
+  failOn?: Severity;
+}
+
+function parseArgs(argv: string[]): CliOptions {
+  const opts: CliOptions = { root: process.cwd(), staged: false };
+  for (const arg of argv) {
+    if (arg === '--staged') opts.staged = true;
+    else if (arg.startsWith('--root=')) opts.root = path.resolve(arg.slice(7));
+    else if (arg.startsWith('--fail-on=')) {
+      const v = arg.slice(10);
+      if (v === 'error' || v === 'warning') opts.failOn = v;
+    }
+  }
+  return opts;
+}
+
+function formatReport(findings: Finding[]): string {
+  const errors = findings.filter((f) => f.severity === 'error');
+  const warnings = findings.filter((f) => f.severity === 'warning');
+  const lines: string[] = [
+    '# Architecture Harness Report',
+    '',
+    '## Summary',
+    '',
+    `- Error: ${errors.length}`,
+    `- Warning: ${warnings.length}`,
+    `- Total: ${findings.length}`,
+    '',
+  ];
+  if (findings.length === 0) {
+    lines.push('## Findings', '', '(なし)');
+    return lines.join('\n');
+  }
+  lines.push('## Findings', '');
+  for (const f of findings) {
+    const loc = f.line ? `${f.file}:${f.line}` : f.file;
+    lines.push(`- **[${f.severity.toUpperCase()}] ${f.rule}** — ${loc}`);
+    lines.push(`  ${f.message}`);
+  }
+  return lines.join('\n');
+}
+
+async function main(): Promise<void> {
+  const opts = parseArgs(process.argv.slice(2));
+  const findings: Finding[] = [];
+
+  // 1) repository-level checks (常に走らせる)
+  for (const r of REPO_CHECKS) {
+    findings.push(...(await r.check(opts.root)));
+  }
+
+  // 2) file-level checks
+  const candidatePaths = opts.staged
+    ? listStagedFiles(opts.root)
+    : await walkRepo(opts.root);
+
+  for (const rel of candidatePaths) {
+    const applicable = RULES.filter((r) => r.scope(rel));
+    if (applicable.length === 0) continue;
+    let content: string;
+    try {
+      content = await readFile(path.join(opts.root, rel), 'utf8');
+    } catch {
+      continue; // 削除ファイル等
+    }
+    for (const r of applicable) {
+      findings.push(...r.check({ path: rel, content }));
+    }
+  }
+
+  console.log(formatReport(findings));
+
+  if (opts.failOn) {
+    const hit = findings.some((f) =>
+      opts.failOn === 'warning' ? true : f.severity === 'error'
+    );
+    if (hit) process.exitCode = 2;
+  }
+}
+
+main().catch((err: unknown) => {
+  console.error('[architecture-harness] failed:', err);
+  process.exitCode = 1;
+});
