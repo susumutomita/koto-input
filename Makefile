@@ -76,3 +76,23 @@ before-commit: architecture_harness lint_text lint
 .PHONY: dev
 dev:
 	bun run dev
+
+# --- Koto 入力メソッド (Swift) ---
+# Linux 等 Swift toolchain の無い環境では実行できない。CI の macOS ジョブが
+# swift build / swift test を担う (docs/architecture.md)。
+
+.PHONY: swift-build
+swift-build:
+	swift build --package-path KotoInput
+
+.PHONY: swift-test
+swift-test:
+	swift test --package-path KotoInput
+
+.PHONY: ime-build
+ime-build:
+	bash scripts/build-koto-app.sh
+
+.PHONY: ime-install
+ime-install:
+	bash scripts/build-koto-app.sh --install

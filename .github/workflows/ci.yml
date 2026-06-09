@@ -49,3 +49,26 @@ jobs:
       - name: lint typecheck test build
         run: |
           make before-commit
+
+  swift:
+    # KotoInput (入力メソッド本体) のビルドとテスト。FoundationModels SDK を
+    # 含む Xcode が必要なため macOS 26 ランナーを使う。Apple Intelligence は
+    # ランナーでは利用できないため、実モデル依存のテストは自動でスキップされる。
+    runs-on: macos-26
+    steps:
+      - name: Check out the code
+        # actions/checkout v4.3.1
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: true
+
+      - name: Show toolchain versions
+        run: |
+          sw_vers
+          swift --version
+
+      - name: Build all targets
+        run: swift build --package-path KotoInput
+
+      - name: Run tests
+        run: swift test --package-path KotoInput
