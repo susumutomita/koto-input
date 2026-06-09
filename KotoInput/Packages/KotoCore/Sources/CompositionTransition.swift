@@ -37,11 +37,7 @@ public enum CompositionTransition {
         }
 
         switch command {
-        case .insert(let text):
-            return applyEdit(state) { current in
-                UTF16TextEditing.insert(text, into: current.displayedText, at: current.selection)
-            }
-        case .replaceSelection(let text):
+        case .insert(let text), .replaceSelection(let text):
             return applyEdit(state) { current in
                 UTF16TextEditing.insert(text, into: current.displayedText, at: current.selection)
             }

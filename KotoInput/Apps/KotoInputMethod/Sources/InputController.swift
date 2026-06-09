@@ -180,11 +180,13 @@ final class InputController: IMKInputController {
                 string: marked,
                 attributes: [.underlineStyle: underline.rawValue]
             )
+            // IMK 境界での防御: 不正な範囲はクラッシュさせずクランプする。
+            let clamped = UTF16TextEditing.clampedSelection(view.selection, in: marked)
             client.setMarkedText(
                 attributed,
                 selectionRange: NSRange(
-                    location: view.selection.location,
-                    length: view.selection.length
+                    location: clamped.location,
+                    length: clamped.length
                 ),
                 replacementRange: notFound
             )

@@ -80,23 +80,24 @@ public final class CompositionCoordinator {
         provider: any TextConversionProvider,
         request: ConversionRequest
     ) async -> CompositionCommand? {
+        func failed(_ error: KotoError) -> CompositionCommand {
+            .conversionFailed(
+                requestID: request.id,
+                compositionID: request.compositionID,
+                revision: request.revision,
+                error: error
+            )
+        }
+
         switch await provider.availability() {
         case .available:
             break
         case .preparing:
-            return .conversionFailed(
-                requestID: request.id,
-                compositionID: request.compositionID,
-                revision: request.revision,
-                error: .modelUnavailable("モデルを準備しています。しばらくしてからもう一度お試しください。")
+            return failed(
+                .modelUnavailable("モデルを準備しています。しばらくしてからもう一度お試しください。")
             )
         case .unavailable(let reason):
-            return .conversionFailed(
-                requestID: request.id,
-                compositionID: request.compositionID,
-                revision: request.revision,
-                error: .modelUnavailable(reason)
-            )
+            return failed(.modelUnavailable(reason))
         }
 
         do {
@@ -116,30 +117,15 @@ public final class CompositionCoordinator {
                     )
                 )
             case .failure(let error):
-                return .conversionFailed(
-                    requestID: request.id,
-                    compositionID: request.compositionID,
-                    revision: request.revision,
-                    error: error
-                )
+                return failed(error)
             }
         } catch is CancellationError {
             return nil
         } catch let error as KotoError {
             if case .cancelled = error { return nil }
-            return .conversionFailed(
-                requestID: request.id,
-                compositionID: request.compositionID,
-                revision: request.revision,
-                error: error
-            )
+            return failed(error)
         } catch {
-            return .conversionFailed(
-                requestID: request.id,
-                compositionID: request.compositionID,
-                revision: request.revision,
-                error: .generationFailed(String(describing: error))
-            )
+            return failed(.generationFailed(String(describing: error)))
         }
     }
 }
