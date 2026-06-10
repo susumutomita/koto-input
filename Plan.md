@@ -272,3 +272,27 @@ open Issue（6〜11、15）をゼロにする。ローカルセッションの /
 - 問題: ローカルとクラウドで同一機能が並行実装され、照合と移植の手戻りが発生した。
 - 根本原因: ローカルの長時間セッション中に origin の進行を確認せず、ハンドオフ Issue 15 の作成とクラウド側の着手が前後した。
 - 予防策: 長いローカルセッションでは着手前と PR 直前に `git fetch` で origin/main の進行を確認する。ハンドオフ Issue には「ローカルに未 push の実装がある」ことを冒頭に明記し、クラウド側はまず push を待つ運用にする。
+
+### 実機フィードバック対応（Issue 19）と PR 18 の合流 - 2026-06-10
+
+#### 目的
+
+Issue 19（https://github.com/susumutomita/koto-input/issues/19 ）。実機で観測された「勝手な鉤括弧・再変換不可・誤変換から戻しにくい」を解消する。作業中に main へマージされた PR 18（ローカルセッションの堅牢化）を取り込み統合した。
+
+#### タスク
+
+- [x] ConversionOutputValidator: 元テキストに括弧（「『[）が無い場合のみ、出力全体を包む 「」/『』 を決定論的に unwrap
+- [x] PromptBuilder: 「入力に無い引用符・括弧で出力を包まない」規則を追加
+- [x] 再変換 = 候補の再抽選: converted から編集なしの再要求は原文スナップショットから attempt 付きで変換し直す。provider は attempt 0 を greedy、1 以降を温度 0.8 で抽選（ADR-0007）
+- [x] 再変換中・再変換後も Escape で原文へ復元可能（sourceText 保持）。編集で attempt リセット
+- [x] PR 18 の取り込み: 仕様書はローカル版を採用、kon' 原文維持・語末句読点変換の新仕様にテストを整合（ローカル側が更新済み）、modelInputText/attempt/unwrap の共存を確認
+- [ ] ゲート → push → CI green → マージ → Issue クローズ
+
+#### 検証手順
+
+1. CI の swift ジョブ green。
+2. 実機: 鉤括弧が付かない、Shift+Space 連打で候補が変わる、Escape で原文へ戻る。
+
+#### 進捗ログ
+
+- 2026-06-10: Issue 19 実装中に PR 18 の main マージを検出。マージコンフリクト（Plan.md・仕様書）を解決し、意味的整合（attempt × modelInputText × protectedTerms 注入）を確認して統合。
