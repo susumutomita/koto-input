@@ -27,6 +27,7 @@ public final class CompositionCoordinator {
     }
 
     public func handle(_ command: CompositionCommand) {
+        let wasIdle = state.phase == .idle
         let outcome = CompositionTransition.reduce(state, command)
         state = outcome.state
         switch outcome.effect {
@@ -43,7 +44,21 @@ public final class CompositionCoordinator {
                 sourceText: sourceText
             )
         }
+        if wasIdle, state.phase == .composing {
+            // composition 開始時にモデルを温めて、変換要求時のレイテンシを下げる。
+            prewarmProvider()
+        }
         renderer(outcome.view)
+    }
+
+    /// fire-and-forget の prewarm。失敗してもユーザー影響はない（変換時に
+    /// その場でセッションが作られるだけ）。
+    private func prewarmProvider() {
+        let settings = settingsRepository.load()
+        let provider = self.provider
+        Task.detached {
+            await provider.prewarm(settings: settings)
+        }
     }
 
     private func cancelConversionTask() {

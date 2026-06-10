@@ -64,14 +64,16 @@ idle → composing → converting → converted → (commit) → idle
 
 - `revision` はユーザー編集・restore・新規変換要求のたびに増える。
 - 変換結果は `compositionID` / `requestID` / `revision` の 3 つが現在状態と一致するときだけ適用する。古い結果が新しい入力を上書きすることはない。
-- Escape の解釈は状態に依存する。変換中・変換後・失敗時は `restoreSource`（元テキスト復元）、素の入力中は `cancel`（composition 破棄）。
+- タイプ先行（ADR-0005）: 変換中でも、スナップショットが先頭に残る末尾追記は変換を継続する。結果はスナップショット部分だけに splice され、追記分は保持される。スナップショットを壊す編集は従来どおりキャンセルする。
+- Escape の解釈は状態に依存する。変換中・変換後・失敗時は `restoreSource`（元テキスト復元）、素の入力中は `cancel`（composition 破棄）。タイプ先行の追記がある場合はテキストを保持して変換だけを中止する。
 - 入力ソース切替やフォーカス移動（`deactivate`）では、表示中テキストが空でなければ commit、空なら cancel する。タイプ済みテキストを消失させない。
 
 ## 変換の並行性
 
-- `CompositionCoordinator` は @MainActor。変換タスクは常に 1 本で、新しい要求・編集・commit・cancel・deactivate が走ると既存タスクを cancel する。
-- provider の cancellation はベストエフォート。stale 判定（上記 3 条件）は cancellation が成功しても必ず行う。
+- `CompositionCoordinator` は @MainActor。変換タスクは常に 1 本で、新しい要求・commit・cancel・deactivate、およびスナップショットを壊す編集が走ると既存タスクを cancel する。
+- provider の cancellation はベストエフォート。stale 判定（上記 3 条件 + prefix 一致）は cancellation が成功しても必ず行う。
 - モデル呼び出しはキーイベントの同期ハンドリング中には行わない。`converting` 状態を描画してから非同期タスクで実行する。
+- composition 開始（idle → composing）時に provider を prewarm し、変換要求時のレイテンシを下げる（ADR-0005）。セッションは使い捨てのまま（ADR-0002）。
 
 ## プロンプトと出力検証
 

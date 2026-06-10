@@ -103,15 +103,85 @@ struct CompositionTransitionTests {
         #expect(outcome.effect == .none)
     }
 
-    @Test("converting 中の編集はタスクを取り消して composing に戻る")
-    func editDuringConversionCancels() {
+    @Test("converting 中の末尾追記は変換を継続する（タイプ先行）")
+    func appendDuringConversionContinues() {
         let before = converting("kyou")
         let outcome = CompositionTransition.reduce(before, .insert("x"))
+        #expect(outcome.state.phase == before.phase)
+        #expect(outcome.state.displayedText == "kyoux")
+        #expect(outcome.effect == .none)
+        #expect(outcome.state.sourceText == "kyou")
+        #expect(outcome.state.activeRequestRevision == before.activeRequestRevision)
+    }
+
+    @Test("converting 中にスナップショット内を編集するとキャンセルされる")
+    func editingSnapshotDuringConversionCancels() {
+        let before = converting("kyou")
+        // カーソルを先頭へ移動してから挿入し、スナップショットの先頭一致を壊す。
+        let moved = CompositionTransition.reduce(before, .moveCursor(offset: -4)).state
+        let outcome = CompositionTransition.reduce(moved, .insert("x"))
+        #expect(outcome.state.phase == .composing)
+        #expect(outcome.state.displayedText == "xkyou")
+        #expect(outcome.effect == .cancelConversion)
+        #expect(outcome.state.activeRequestRevision == nil)
+    }
+
+    @Test("converting 中の deleteBackward でスナップショットが崩れたらキャンセルされる")
+    func backspaceIntoSnapshotCancels() {
+        let before = converting("kyou")
+        let outcome = CompositionTransition.reduce(before, .deleteBackward)
+        #expect(outcome.state.phase == .composing)
+        #expect(outcome.state.displayedText == "kyo")
+        #expect(outcome.effect == .cancelConversion)
+    }
+
+    @Test("タイプ先行中の変換結果はスナップショット部分だけを差し替える")
+    func spliceKeepsTypedTail() {
+        let before = converting("kyou")
+        let appended = CompositionTransition.reduce(before, .insert(" ashita")).state
+        let result = ConversionResult(
+            requestID: fixedRequestID,
+            compositionID: appended.compositionID,
+            revision: appended.activeRequestRevision ?? 0,
+            convertedText: "今日"
+        )
+        let outcome = CompositionTransition.reduce(appended, .conversionSucceeded(result))
+        #expect(outcome.state.displayedText == "今日 ashita")
+        #expect(outcome.state.phase == .composing)
+        // 追記分を失わないため、splice 後は Escape 復元を無効化する。
+        #expect(!outcome.state.isSourcePreserved)
+        // カーソルは差分（"今日".utf16 - "kyou".utf16 = -2）だけシフトされる。
+        #expect(outcome.state.selection == .cursor(at: "今日 ashita".utf16.count))
+    }
+
+    @Test("タイプ先行中の Escape は追記分を保持して変換だけを中止する")
+    func escapeDuringTypeAheadKeepsTail() {
+        let before = converting("kyou")
+        let appended = CompositionTransition.reduce(before, .insert("x")).state
+        let outcome = CompositionTransition.reduce(appended, .restoreSource)
         #expect(outcome.state.phase == .composing)
         #expect(outcome.state.displayedText == "kyoux")
         #expect(outcome.effect == .cancelConversion)
-        #expect(outcome.state.sourceText == "kyou")
-        #expect(outcome.state.activeRequestRevision == nil)
+        #expect(!outcome.state.isSourcePreserved)
+    }
+
+    @Test("タイプ先行中に失敗しても追記分は保持され、Escape でテキストが残る")
+    func failureDuringTypeAheadKeepsTail() {
+        let before = converting("kyou")
+        let appended = CompositionTransition.reduce(before, .insert("x")).state
+        let failed = CompositionTransition.reduce(
+            appended,
+            .conversionFailed(
+                requestID: fixedRequestID,
+                compositionID: appended.compositionID,
+                revision: appended.activeRequestRevision ?? 0,
+                error: .emptyResponse
+            )
+        ).state
+        #expect(failed.displayedText == "kyoux")
+        let outcome = CompositionTransition.reduce(failed, .restoreSource)
+        #expect(outcome.state.phase == .composing)
+        #expect(outcome.state.displayedText == "kyoux")
     }
 
     @Test("converting 中のカーソル移動は変換を継続する")
