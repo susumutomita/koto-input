@@ -14,6 +14,7 @@ final class InputController: IMKInputController {
 
     private enum KeyCode {
         static let enter: UInt16 = 36
+        static let tab: UInt16 = 48
         static let space: UInt16 = 49
         static let backspace: UInt16 = 51
         static let escape: UInt16 = 53
@@ -64,6 +65,13 @@ final class InputController: IMKInputController {
             // 変換ショートカット。composition が無ければターミナルへ通す。
             guard composing else { return false }
             coordinator.handle(.requestConversion)
+            return true
+
+        case KeyCode.tab:
+            // 決定論ローマ字 → ひらがな変換（AI 不要・即時）。
+            // composition が無ければターミナルの補完を奪わない。
+            guard composing, essentialFlags.isEmpty else { return false }
+            coordinator.handle(.normalizeToKana)
             return true
 
         case KeyCode.escape:

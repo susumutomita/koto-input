@@ -150,3 +150,34 @@ Issue 5（https://github.com/susumutomita/koto-input/issues/5 ）。lazyjp-vscod
 #### 進捗ログ
 
 - 2026-06-10: lazyjp-vscode のソースを読み、工夫を特定（プロンプト規則・pending 行追跡による背景変換・会話モードは作者自身がデフォルト OFF）。Issue 5 起票、実装一式を作成。
+
+### 決定論ローマ字→ひらがな変換（Issue 13） - 2026-06-10
+
+#### 目的
+
+Issue 13（https://github.com/susumutomita/koto-input/issues/13 ）。Boiling Egg 方式の決定論かな変換を取り込み、LLM の仕事を「かな漢字変換 + 整文」に絞って精度を上げる。
+
+#### 制約
+
+- Egg の its/hira.el（GPL）は規則の参考のみ。コードは Swift で独自実装（MIT 維持、ADR-0006）。
+- 変換対象は「小文字のみ・ローマ字として完全解釈できる単語」に限定（英単語・固有名詞・パスを破壊しない）。
+
+#### タスク
+
+- [x] RomajiKanaConverter（変換表・促音・撥音の文脈判定・小書き・長音・単語境界の安全規則）
+- [x] 撥音の n 分割規則（onna→おんな、konnyaku→こんにゃく、nn 単独→ん）
+- [x] reducer に normalizeToKana コマンド追加（編集として扱い、変換中は prefix 変化でキャンセル）
+- [x] InputController: Tab キー（composition 中のみ消費）
+- [x] PromptBuilder.prompt の前段かな正規化 + few-shot 例をかな化後の形へ更新
+- [x] テスト: 変換規則 12 ケース + reducer 2 件 + プロンプト 2 件
+- [x] ADR-0006 / README キー表 / architecture.md 更新
+- [ ] ゲート → コミット → push → PR → CI green
+
+#### 検証手順
+
+1. CI の swift ジョブ green。
+2. 実機: composition 中の Tab で即時ひらがな化、Shift+Space の変換品質向上（ローマ字解釈の揺れ消滅）。
+
+#### 進捗ログ
+
+- 2026-06-10: its/hira.el の規則を確認し独自実装。撥音の nn 分割（2 つ目の n が次音節の頭になるケース）のバグをテスト設計段階で検出して修正。

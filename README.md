@@ -49,6 +49,7 @@ make ime-install   # ビルドして ~/Library/Input Methods へ配置
 | キー | 動作 |
 |------|------|
 | `Shift + Space` | AI 変換を要求する |
+| `Tab` | ローマ字をその場でひらがなに変換する（AI 不要・即時） |
 | `Escape` | 変換のキャンセル、または変換前テキストの復元 |
 | `Enter` | composition の確定（送信はしない） |
 | `Control + Enter` | composition 内に改行を挿入する |

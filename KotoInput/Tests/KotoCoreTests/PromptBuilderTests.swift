@@ -17,7 +17,7 @@ struct PromptBuilderTests {
     @Test("few-shot の変換例が入出力ペアで含まれる")
     func fewShotExample() {
         let instructions = PromptBuilder.instructions(settings: .default)
-        #expect(instructions.contains("kono authentication no sekinin"))
+        #expect(instructions.contains("この authentication の せきにん はんい"))
         #expect(instructions.contains("この認証設計は責任範囲が曖昧なので"))
     }
 
@@ -85,9 +85,15 @@ struct PromptBuilderTests {
         #expect(!instructions.contains("  \n "))
     }
 
-    @Test("prompt は INPUT セクションに元テキストをそのまま入れる")
-    func promptKeepsSourceVerbatim() {
+    @Test("prompt はローマ字を前段でひらがな化して INPUT に入れる")
+    func promptNormalizesRomaji() {
         let prompt = PromptBuilder.prompt(sourceText: "kyou ha ame")
-        #expect(prompt == "[INPUT]\nkyou ha ame")
+        #expect(prompt == "[INPUT]\nきょう は あめ")
+    }
+
+    @Test("prompt は英単語・パス・固有名詞を破壊しない")
+    func promptPreservesNonRomaji() {
+        let prompt = PromptBuilder.prompt(sourceText: "Claude Code de scripts/foo.sh wo naosu")
+        #expect(prompt == "[INPUT]\nClaude Code で scripts/foo.sh を なおす")
     }
 }

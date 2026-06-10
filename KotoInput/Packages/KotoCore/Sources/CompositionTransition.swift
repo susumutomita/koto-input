@@ -52,6 +52,13 @@ public enum CompositionTransition {
             return moveCursor(state, offset: offset)
         case .requestConversion:
             return requestConversion(state, makeRequestID: makeRequestID)
+        case .normalizeToKana:
+            // 決定論ひらがな化は編集として扱う。変換中なら prefix が変わるため
+            // 既存のタイプ先行ルールに従ってキャンセルされる。
+            return applyEdit(state) { current in
+                let kana = RomajiKanaConverter.normalize(current.displayedText)
+                return (kana, .cursor(at: kana.utf16.count))
+            }
         case .conversionSucceeded(let result):
             return conversionSucceeded(state, result: result)
         case .conversionFailed(let requestID, let compositionID, let revision, let error):

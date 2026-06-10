@@ -6,6 +6,8 @@ public enum CompositionCommand: Sendable {
     case moveCursor(offset: Int)
     case replaceSelection(String)
     case requestConversion
+    /// composition 全体をその場で決定論的にひらがな化する（AI 不要・即時）。
+    case normalizeToKana
     case conversionSucceeded(ConversionResult)
     case conversionFailed(
         requestID: ConversionRequestID,
