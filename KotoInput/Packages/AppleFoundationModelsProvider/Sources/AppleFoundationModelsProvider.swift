@@ -47,8 +47,13 @@ public struct AppleFoundationModelsProvider: TextConversionProvider {
         do {
             // セッションは要求ごとに使い捨てる。transcript を持ち越すと過去の
             // 変換入力が次の変換に影響し、コンテキスト長も増えるため（ADR-0002）。
+            // sampling は greedy 固定。入力変換は同じ入力に同じ出力を返すべきで、
+            // 温度付きサンプリングだと変換結果が毎回揺れる。
             let session = LanguageModelSession(instructions: instructions)
-            let response = try await session.respond(to: prompt)
+            let response = try await session.respond(
+                to: prompt,
+                options: GenerationOptions(sampling: .greedy)
+            )
             return ConversionResult(
                 requestID: request.id,
                 compositionID: request.compositionID,
