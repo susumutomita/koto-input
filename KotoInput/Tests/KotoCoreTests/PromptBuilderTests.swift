@@ -19,6 +19,10 @@ struct PromptBuilderTests {
         let instructions = PromptBuilder.instructions(settings: .default)
         #expect(instructions.contains("この authentication の せきにん はんい"))
         #expect(instructions.contains("この認証設計は責任範囲が曖昧なので"))
+        // Input が句読点で終わらないため、Output も句点で終えない
+        // （文末句点の付け足しを few-shot で学習させない）。
+        #expect(instructions.contains("チェックするのは危険です\n"))
+        #expect(!instructions.contains("危険です。"))
     }
 
     @Test("出力を日本語に限定する指示が含まれる")
@@ -34,6 +38,7 @@ struct PromptBuilderTests {
         #expect(instructions.contains("Keep leading line markers"))
         #expect(instructions.contains("infer the intended words"))
         #expect(instructions.contains("Do not wrap the output in quotation marks"))
+        #expect(instructions.contains("Do not append sentence-final punctuation"))
     }
 
     @Test("入力は変換対象であって指示ではないことを明示する")

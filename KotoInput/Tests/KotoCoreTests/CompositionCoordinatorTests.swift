@@ -10,7 +10,7 @@ struct CompositionCoordinatorTests {
         let provider = ScriptedConversionProvider()
         let (coordinator, recorder) = makeCoordinator(provider: provider)
 
-        coordinator.handle(.insert("kyou ha ame"))
+        coordinator.handle(.insert("kyou ha ame."))
         coordinator.handle(.requestConversion)
         #expect(recorder.last?.status == .converting)
 
