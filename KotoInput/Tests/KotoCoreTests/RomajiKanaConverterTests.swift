@@ -38,6 +38,26 @@ struct RomajiKanaConverterTests {
         #expect(RomajiKanaConverter.normalize("onna") == "おんな")
         #expect(RomajiKanaConverter.normalize("konnyaku") == "こんにゃく")
         #expect(RomajiKanaConverter.normalize("nn") == "ん")
+        #expect(RomajiKanaConverter.normalize("nnn") == "んん")
+    }
+
+    @Test("音節区切りのアポストロフィを対称に扱う（zen'in / zenn'in）")
+    func apostropheSeparatorSymmetry() {
+        #expect(RomajiKanaConverter.normalize("zen'in") == "ぜんいん")
+        #expect(RomajiKanaConverter.normalize("zenn'in") == "ぜんいん")
+        #expect(RomajiKanaConverter.normalize("kon'") == "こん")
+    }
+
+    @Test("保護語はかな化から除外される")
+    func protectedTermsExcluded() {
+        #expect(
+            RomajiKanaConverter.normalize("tamago wo taberu", protecting: ["tamago"])
+                == "tamago を たべる"
+        )
+        #expect(
+            RomajiKanaConverter.normalize("kyou ha ame", protecting: [])
+                == "きょう は あめ"
+        )
     }
 
     @Test("ローマ字として解釈できない英単語はそのまま残す")

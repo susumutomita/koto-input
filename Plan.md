@@ -181,3 +181,30 @@ Issue 13（https://github.com/susumutomita/koto-input/issues/13 ）。Boiling Eg
 #### 進捗ログ
 
 - 2026-06-10: its/hira.el の規則を確認し独自実装。撥音の nn 分割（2 つ目の n が次音節の頭になるケース）のバグをテスト設計段階で検出して修正。
+
+### converter 補強と Homebrew 配布整備（Issue 15 の取り込み + Issue 11） - 2026-06-10
+
+#### 目的
+
+ローカルセッションのハンドオフ（Issue 15）に記載されたバグ群のうち、本実装に該当するものを取り込み、Issue 11 の Homebrew 配布を整備する。ローカルブランチ feature/romaji-kana-layer は未 push のため、バグは記述から独自に再現・修正した。
+
+#### タスク
+
+- [x] RomajiKanaConverter: 音節区切りアポストロフィの対称処理（zen'in / zenn'in → ぜんいん）、語頭 ' の拒否
+- [x] RomajiKanaConverter: 保護語のかな化除外（normalize(_:protecting:)）。validator の保護語検証との層間不整合（小文字保護語がかな化され検証が偽陽性で落ちる）を解消
+- [x] PromptBuilder.prompt に settings を渡し、保護語を原文のまま [INPUT] へ
+- [x] テスト: zenn'in 対称・nnn・語末 n'・保護語除外・小文字保護語のプロンプト保持
+- [x] release.yml: tag push で Koto.app をビルドし Releases へ zip + sha256 を添付。署名（Developer ID）と公証（notarytool）は secrets 設定時のみ実行
+- [x] build-koto-app.sh: KOTO_CODESIGN_IDENTITY による hardened runtime 署名対応
+- [x] Casks/koto.rb（tap 整備までは `brew install --cask ./Casks/koto.rb` で導入可能）
+- [x] README に配布手順を追記
+- [ ] ゲート → コミット → push → PR → CI green
+
+#### 検証手順
+
+1. CI の swift ジョブ green（新テスト含む）。
+2. 署名 secrets 設定後に tag push し、Releases の zip から `brew install --cask` できること（オーナー作業）。
+
+#### 進捗ログ
+
+- 2026-06-10: feature/romaji-kana-layer が未 push のため、Issue 15 記載のバグ記述から該当分（アポストロフィ対称性・保護語の層間不整合）を独自修正。・゠/々〆 の passthrough は本実装では非 ASCII 素通しのため該当なし。release workflow / cask / 署名対応を追加。

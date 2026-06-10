@@ -32,9 +32,19 @@ kono authentication no sekinin han'i ga aimai dakara application layer dake de c
 
 ## インストール
 
+ソースからビルドする場合。
+
 ```bash
 make ime-install   # ビルドして ~/Library/Input Methods へ配置
 ```
+
+Homebrew を使う場合（GitHub Releases にリリースがあるとき）。
+
+```bash
+brew install --cask ./Casks/koto.rb
+```
+
+リリースは tag（`v*`）の push で `release` workflow が自動作成する。署名・公証は secrets（Developer ID 証明書と App Store Connect API キー）を設定した場合のみ行われ、未設定のリリースは Gatekeeper にブロックされるためソースビルドを使う。
 
 配置後の手順。
 
