@@ -19,14 +19,18 @@ public enum PromptBuilder {
             """
             [REQUIREMENTS]
             - Preserve the author's meaning, intent, and level of certainty.
-            - Convert hiragana, romaji, English, and mixed Japanese into \
-            natural Japanese.
+            - Convert hiragana, romaji, and mixed Japanese into natural \
+            written Japanese. Keep English words unchanged.
             - Always write the output in Japanese.
             - Use kanji where it makes the Japanese natural.
+            - Write each word in its standard spelling. Never replace a word \
+            with a different word, a synonym, or a related term.
             - If the romaji contains obvious typos, infer the intended words \
             from context and fix them.
             - Convert '[' and ']' into '「' and '」'.
             - Do not wrap the output in quotation marks or brackets that are \
+            not present in the input.
+            - Do not insert commas, periods, or other punctuation that are \
             not present in the input.
             - Do not append sentence-final punctuation such as '。' when the \
             input does not end with punctuation.
@@ -43,17 +47,23 @@ public enum PromptBuilder {
         )
 
         // 小型のオンデバイスモデルは few-shot の有無で指示追従の安定性が
-        // 大きく変わるため、変換例を 1 つ固定で入れる。Input はモデルが実際に
-        // 受け取る形（前段かな正規化後）に合わせる。Input が句読点で終わらない
-        // ため Output も句点で終えない（句点で終えると文末句点の付け足しを
-        // 学習してしまう）。
+        // 大きく変わるため、変換例を固定で入れる。Input はモデルが実際に
+        // 受け取る形（前段かな正規化後）に合わせる。Output は忠実な変換
+        // （同じ単語の漢字化のみ）にする。同義語への言い換え・単語や句読点の
+        // 付加を例に含めると、モデルがそれを正当な変換として学習してしまう
+        // （実機で「げんごです」→「日本語です」を観測。Issue 22）。
         sections.append(
             """
             [EXAMPLE]
             Input:
             この authentication の せきにん はんい が あいまい だから application layer だけ で check する のは あぶない
             Output:
-            この認証設計は責任範囲が曖昧なので、アプリケーション層だけでチェックするのは危険です
+            この authentication の責任範囲が曖昧だから application layer だけで check するのは危ない
+
+            Input:
+            SWIFTはいいげんごです
+            Output:
+            SWIFTはいい言語です
             """
         )
 

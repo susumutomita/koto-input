@@ -42,6 +42,17 @@ public enum ConversionOutputValidator {
             }
         }
 
+        // 元テキスト中の頭字語（長さ 2 以上の大文字連続）はユーザーが意図して
+        // 打った表記なので、保護語と同様に出力へ原文どおり残す。実機で
+        // SWIFT → Swift のような表記崩れと同時の意味置換を観測（Issue 22）。
+        for acronym in uppercaseRuns(in: source) {
+            if !trimmed.contains(acronym) {
+                return .failure(
+                    .generationFailed("頭字語「\(acronym)」が変換結果から失われました。")
+                )
+            }
+        }
+
         return .success(trimmed)
     }
 
@@ -63,6 +74,25 @@ public enum ConversionOutputValidator {
             }
         }
         return text
+    }
+
+    /// テキスト中の長さ 2 以上の ASCII 大文字連続（頭字語）を列挙する。
+    /// RomajiKanaConverter.convertMixedCaseWord が分割対象とする条件と揃え、
+    /// かな化で残した頭字語が生成で失われていないかを検証する。
+    /// 大文字 1 文字区切りの CamelCase（KotoInput 等）は対象にしない。
+    static func uppercaseRuns(in text: String) -> [String] {
+        var runs: [String] = []
+        var current = ""
+        for character in text {
+            if character.isASCII, character.isLetter, character.isUppercase {
+                current.append(character)
+            } else {
+                if current.count >= 2 { runs.append(current) }
+                current = ""
+            }
+        }
+        if current.count >= 2 { runs.append(current) }
+        return runs
     }
 
     /// 小型モデルは入力に無い文末の句点を付け足す癖がある（実機で観測）。

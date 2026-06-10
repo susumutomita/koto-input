@@ -186,6 +186,25 @@ struct CompositionCoordinatorTests {
         #expect(coordinator.state.displayedText == "Claude Code de naosu")
     }
 
+    @Test("頭字語の表記が崩れた出力は拒否され元テキストを保持する")
+    func lostAcronymKeepsSource() async throws {
+        let provider = ScriptedConversionProvider()
+        let (coordinator, _) = makeCoordinator(provider: provider)
+
+        // 実機で観測したフロー: SWIFThaiigengodesu → モデルが
+        // 「Swiftは、英語です」と表記崩れ + 意味置換した出力を返す。
+        coordinator.handle(.insert("SWIFThaiigengodesu"))
+        coordinator.handle(.requestConversion)
+        try await eventually { (await provider.pendingCount) == 1 }
+        #expect(await provider.receivedModelInputTexts == ["SWIFTはいいげんごです"])
+        await provider.resolveOldest(with: "Swiftは、英語です")
+        try await eventually {
+            if case .failed = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "SWIFThaiigengodesu")
+    }
+
     @Test("スナップショットを壊す編集が provider のキャンセルとして観測される")
     func editCancellationReachesProvider() async throws {
         let provider = ScriptedConversionProvider()

@@ -171,6 +171,38 @@ struct ConversionOutputValidatorTests {
         #expect(result == .success("Claude Code を直します。"))
     }
 
+    @Test("元テキストの頭字語が出力から消えたら失敗する")
+    func lostAcronymFails() {
+        // 実機: SWIFThaiigengodesu →「Swiftは、英語です」の表記崩れ + 意味置換。
+        let result = ConversionOutputValidator.validate(
+            output: "Swiftは、英語です",
+            source: "SWIFThaiigengodesu",
+            settings: .default
+        )
+        guard case .failure(.generationFailed(let message)) = result else {
+            Issue.record("頭字語の消失が検出されなかった: \(result)")
+            return
+        }
+        #expect(message.contains("SWIFT"))
+    }
+
+    @Test("頭字語が残っていれば受理し、大文字 1 文字は頭字語として要求しない")
+    func keptAcronymPasses() {
+        let result = ConversionOutputValidator.validate(
+            output: "SWIFTはいい言語です",
+            source: "SWIFThaiigengodesu",
+            settings: .default
+        )
+        #expect(result == .success("SWIFTはいい言語です"))
+        // CamelCase の頭などの大文字 1 文字は要求しない。
+        let camel = ConversionOutputValidator.validate(
+            output: "コードを直す",
+            source: "Code wo naosu",
+            settings: .default
+        )
+        #expect(camel == .success("コードを直す"))
+    }
+
     @Test("空白のみの保護語は無視され、検証が恒常失敗しない")
     func whitespaceOnlyProtectedTermIgnored() {
         var settings = ConversionSettings.default
