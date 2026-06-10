@@ -1,0 +1,82 @@
+name: release
+
+# tag (v*) の push で Koto.app をビルドし、GitHub Releases に zip を添付する。
+# 署名・公証は secrets が設定されている場合のみ実行する（未設定なら ad-hoc
+# 署名のままビルドし、自分ビルド相当の成果物を作る）。
+#
+# 必要な secrets（任意。Issue 11 参照）:
+# - MACOS_CERTIFICATE        Developer ID Application 証明書 (.p12 の base64)
+# - MACOS_CERTIFICATE_PWD    .p12 のパスワード
+# - APPLE_API_KEY_ID         App Store Connect API キー ID（公証用）
+# - APPLE_API_ISSUER_ID      App Store Connect Issuer ID
+# - APPLE_API_KEY_P8         API キー本体 (.p8 の中身)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - name: Check out the code
+        # actions/checkout v5.0.1 (Node 24 対応)
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Import signing certificate (secrets 未設定ならスキップ)
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          if [ -z "$MACOS_CERTIFICATE" ]; then
+            echo "署名証明書が未設定のため ad-hoc 署名でビルドします"
+            exit 0
+          fi
+          echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p ci-keychain build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci-keychain build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k ci-keychain build.keychain
+          identity=$(security find-identity -v -p codesigning build.keychain \
+            | awk -F'"' 'NR==1{print $2}')
+          echo "KOTO_CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Build Koto.app
+        run: bash scripts/build-koto-app.sh
+
+      - name: Notarize (secrets 未設定ならスキップ)
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -z "$APPLE_API_KEY_P8" ]; then
+            echo "App Store Connect API キーが未設定のため公証をスキップします"
+            exit 0
+          fi
+          echo "$APPLE_API_KEY_P8" > AuthKey.p8
+          ditto -c -k --keepParent build/Koto.app Koto-notarize.zip
+          xcrun notarytool submit Koto-notarize.zip \
+            --key AuthKey.p8 \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait
+          xcrun stapler staple build/Koto.app
+
+      - name: Package and upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          ASSET="Koto-${TAG}.zip"
+          ditto -c -k --keepParent build/Koto.app "$ASSET"
+          shasum -a 256 "$ASSET" > "$ASSET.sha256"
+          gh release create "$TAG" --title "Koto ${TAG}" --generate-notes || true
+          gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber

@@ -1,3 +1,5 @@
+import Foundation
+
 /// 決定論的なローマ字 → ひらがな変換。
 ///
 /// boiled-egg / Boiling Egg（Egg・Tamago）が確立した「素打ちしたローマ字を
@@ -7,10 +9,52 @@
 ///
 /// 安全規則: 変換するのは「小文字だけで構成され、ローマ字として最後まで
 /// 解釈できる単語」のみ。英単語（解釈不能）・大文字を含む単語（固有名詞）・
-/// パスや識別子に隣接する単語はそのまま残す。
+/// パスや識別子に隣接する単語・保護語はそのまま残す。
 public enum RomajiKanaConverter {
     /// テキスト中の変換可能なローマ字単語だけをひらがなへ置き換える。
-    public static func normalize(_ text: String) -> String {
+    /// `protectedTerms` に一致する区間は語の途中でも原文のまま保持する
+    /// （validator の保護語検証と層を揃えるため）。
+    public static func normalize(
+        _ text: String,
+        protecting protectedTerms: [String] = []
+    ) -> String {
+        let terms = protectedTerms.filter { !$0.isEmpty }
+        guard !terms.isEmpty else {
+            return normalizeSegment(text)
+        }
+        var result = ""
+        var remaining = Substring(text)
+        while !remaining.isEmpty {
+            // 最も手前に現れる保護語（同位置なら最長）を探す。
+            var earliest: (range: Range<Substring.Index>, term: String)?
+            for term in terms {
+                guard let range = remaining.range(of: term) else { continue }
+                if let current = earliest {
+                    if range.lowerBound < current.range.lowerBound
+                        || (range.lowerBound == current.range.lowerBound
+                            && term.count > current.term.count)
+                    {
+                        earliest = (range, term)
+                    }
+                } else {
+                    earliest = (range, term)
+                }
+            }
+            guard let found = earliest else {
+                result += normalizeSegment(String(remaining))
+                break
+            }
+            result += normalizeSegment(
+                String(remaining[remaining.startIndex..<found.range.lowerBound])
+            )
+            result += found.term
+            remaining = remaining[found.range.upperBound...]
+        }
+        return result
+    }
+
+    /// 保護語を含まない区間の変換本体。
+    private static func normalizeSegment(_ text: String) -> String {
         let chars = Array(text)
         var result = ""
         var index = 0
@@ -58,6 +102,13 @@ public enum RomajiKanaConverter {
             // 促音の特例: match 系の tch。t を っ にして ch を残す。
             if rest.hasPrefix("tch") {
                 out += "っ"
+                rest.removeFirst()
+                continue
+            }
+            // 音節区切りのアポストロフィ（zenn'in の nn の後の ' 等）は
+            // 読み飛ばす。語頭の ' は変換対象にしない。
+            if first == "'" {
+                guard !out.isEmpty else { return nil }
                 rest.removeFirst()
                 continue
             }

@@ -72,10 +72,15 @@ public enum PromptBuilder {
 
     /// モデルへ渡す前にローマ字を決定論的にひらがな化する（ADR-0006）。
     /// モデルの仕事を得意な「かな漢字変換 + 整文」に絞り、ローマ字解釈の
-    /// 揺れを構造的に排除する。Escape 復元・splice・保護語検証は引き続き
-    /// 打たれたままの sourceText を基準にするため、表示系の挙動は変わらない。
-    public static func prompt(sourceText: String) -> String {
-        "[INPUT]\n" + RomajiKanaConverter.normalize(sourceText)
+    /// 揺れを構造的に排除する。保護語はかな化から除外し、validator の
+    /// 「保護語は原文どおり出力に残る」検証と層を揃える。Escape 復元・
+    /// splice は引き続き打たれたままの sourceText を基準にする。
+    public static func prompt(sourceText: String, settings: ConversionSettings) -> String {
+        "[INPUT]\n"
+            + RomajiKanaConverter.normalize(
+                sourceText,
+                protecting: settings.protectedTerms
+            )
     }
 
     static func styleInstruction(_ style: WritingStyle) -> String {

@@ -87,13 +87,24 @@ struct PromptBuilderTests {
 
     @Test("prompt はローマ字を前段でひらがな化して INPUT に入れる")
     func promptNormalizesRomaji() {
-        let prompt = PromptBuilder.prompt(sourceText: "kyou ha ame")
+        let prompt = PromptBuilder.prompt(sourceText: "kyou ha ame", settings: .default)
         #expect(prompt == "[INPUT]\nきょう は あめ")
     }
 
     @Test("prompt は英単語・パス・固有名詞を破壊しない")
     func promptPreservesNonRomaji() {
-        let prompt = PromptBuilder.prompt(sourceText: "Claude Code de scripts/foo.sh wo naosu")
+        let prompt = PromptBuilder.prompt(
+            sourceText: "Claude Code de scripts/foo.sh wo naosu",
+            settings: .default
+        )
         #expect(prompt == "[INPUT]\nClaude Code で scripts/foo.sh を なおす")
+    }
+
+    @Test("小文字の保護語はかな化されず原文のまま INPUT に残る")
+    func promptKeepsLowercaseProtectedTerms() {
+        var settings = ConversionSettings.default
+        settings.protectedTerms = ["tamago"]
+        let prompt = PromptBuilder.prompt(sourceText: "tamago wo tsukau", settings: settings)
+        #expect(prompt == "[INPUT]\ntamago を つかう")
     }
 }

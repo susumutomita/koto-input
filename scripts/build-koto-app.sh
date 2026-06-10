@@ -25,9 +25,17 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_PATH/KotoInputMethod" "$APP_DIR/Contents/MacOS/KotoInputMethod"
 cp "$PACKAGE_PATH/Apps/KotoInputMethod/Info.plist" "$APP_DIR/Contents/Info.plist"
 
-# Apple Silicon ではローカル実行にも署名が必要なため、ad-hoc 署名する。
-echo "==> ad-hoc 署名"
-codesign --force --deep --sign - "$APP_DIR"
+# 署名。KOTO_CODESIGN_IDENTITY が設定されていれば Developer ID で
+# hardened runtime 付き署名（配布用、release workflow が設定する）。
+# 未設定なら ad-hoc 署名（Apple Silicon のローカル実行に必要）。
+if [[ -n "${KOTO_CODESIGN_IDENTITY:-}" ]]; then
+  echo "==> Developer ID 署名: $KOTO_CODESIGN_IDENTITY"
+  codesign --force --deep --timestamp --options runtime \
+    --sign "$KOTO_CODESIGN_IDENTITY" "$APP_DIR"
+else
+  echo "==> ad-hoc 署名"
+  codesign --force --deep --sign - "$APP_DIR"
+fi
 
 if [[ "${1:-}" == "--install" ]]; then
   TARGET="$HOME/Library/Input Methods/Koto.app"
