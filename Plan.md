@@ -208,3 +208,48 @@ Issue 13（https://github.com/susumutomita/koto-input/issues/13 ）。Boiling Eg
 #### 進捗ログ
 
 - 2026-06-10: feature/romaji-kana-layer が未 push のため、Issue 15 記載のバグ記述から該当分（アポストロフィ対称性・保護語の層間不整合）を独自修正。・゠/々〆 の passthrough は本実装では非 ASCII 素通しのため該当なし。release workflow / cask / 署名対応を追加。
+
+### ローマ字かな変換層の堅牢化（ローカル実装の合流） - 2026-06-10
+
+#### 目的
+
+ローカルセッションで /feature フローにより実装したローマ字かな変換層（仕様書: `docs/specs/2026-06-10-ローマ字かな変換層.md`、Issue 6〜10・15）と、クラウドセッションが先行マージした ADR-0006 実装（PR 14・16）を合流させる。クラウド実装を基盤とし、ローカルのコードレビュー（7 観点 finder + 実証検証）で確認されたバグ修正・テスト・ドキュメントを移植する。
+
+#### 制約
+
+- クラウド実装（文脈規則・Tab 即時変換・prewarm・actor provider）が正。逆移植による機能退行をしない。
+- 移植対象は実機コンパイルで再現確認できたバグに限る。
+
+#### タスク
+
+- [x] ローカル実装を feature/romaji-kana-layer にスナップショット退避（c2fd8c1）
+- [x] クラウド実装との意味レベル照合（/tmp で両実装をコンパイルし挙動差を実証）
+- [x] 保護語の語境界照合（substring 一致が `tabun`+`bun` → 「たbun」と語を破壊する問題の修正）
+- [x] 保護語 sanitize の一元化（`ConversionSettings.sanitizeProtectedTerms`。前後空白付き保護語が黙って消える問題の修正）
+- [x] Tab 即時変換への保護語注入（reduce の環境引数方式。AI 経路との分裂解消）
+- [x] アポストロフィの撥音区切り限定（`goin'` 破壊の修正。`kon'` → こん は原文維持へ仕様変更）
+- [x] 語末句読点 `.` `,` → 。、（`hai,soudesu.` が全体原文のまま残る問題の修正。識別子規則は不変）
+- [x] `dhu` → でゅ の表追加
+- [x] `ConversionRequest.modelInputText`（computed）導入と `PromptBuilder.prompt(modelInput:)` 化、scripted provider での観測
+- [x] 保護語安全網のコーディネータテスト 2 本（喪失検出・ひらがな保護語の偽陽性なし）
+- [x] ドキュメント: 仕様書 5 点の復元 + 合流補記、ADR-0007、README 既知の制限、biome.json の `.build` ignore（ユーザー承認済み）
+- [ ] ゲート → コミット → push → PR → CI green → マージ（ユーザー承認済み）
+
+#### 検証手順
+
+1. `swift test --package-path KotoInput` 全件 pass（移植後 111 件）。
+2. `bun scripts/architecture-harness.ts --staged --fail-on=error` → `make before-commit` green。
+3. CI（ci / swift）green。
+4. 実機: kyouhaiihida → Shift + Space → 「今日はいい日だ」相当、Tab → きょうはいいひだ。
+
+#### 進捗ログ
+
+- 2026-06-10: ローカルで仕様承認 → 5 役割並列実装 → コードレビューでバグ 5 群を実証修正（99 テスト）。ユーザー指示で区切り、ハンドオフ Issue 15 を作成。
+- 2026-06-10: クラウドが PR 14・16 をマージ済みと判明。両実装を実機コンパイルで照合し、クラウド側に残る実害バグ（保護語の語破壊・sanitize 分裂・Tab 経路の保護語欠落・`'` 無条件読み飛ばし・語末句読点の未変換・`dhu` 欠落）を特定して移植。テスト 94 → 111 件、harness Error 0。
+- 2026-06-10: /security-review（ローカル実装に対し指摘 0 件）、/simplify（modelInputText の computed 化・サニタイズ一元化等を適用）はローカル実装で実施済み。移植はその確定結果を反映。Homebrew フォローアップ（01KTQXP0BFHCYY32PGKFD2XW4Z）は PR 16 で解消済みとして resolve。
+
+#### 振り返り
+
+- 問題: ローカルとクラウドで同一機能が並行実装され、照合と移植の手戻りが発生した。
+- 根本原因: ローカルの長時間セッション中に origin の進行を確認せず、ハンドオフ Issue 15 の作成とクラウド側の着手が前後した。
+- 予防策: 長いローカルセッションでは着手前と PR 直前に `git fetch` で origin/main の進行を確認する。ハンドオフ Issue には「ローカルに未 push の実装がある」ことを冒頭に明記し、クラウド側はまず push を待つ運用にする。

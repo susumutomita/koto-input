@@ -238,6 +238,102 @@ struct CompositionCoordinatorTests {
         #expect(coordinator.state.displayedText == "kyou")
     }
 
+    @Test("Tab 即時かな化でも設定の保護語が原文のまま残る")
+    func normalizeToKanaUsesSettingsProtectedTerms() async throws {
+        let provider = ScriptedConversionProvider()
+        var settings = ConversionSettings.default
+        settings.protectedTerms = ["bun"]
+        let (coordinator, _) = makeCoordinator(provider: provider, settings: settings)
+
+        coordinator.handle(.insert("bun wo tukau"))
+        coordinator.handle(.normalizeToKana)
+        #expect(coordinator.state.displayedText == "bun を つかう")
+    }
+
+    @Test("モデルへ渡る modelInputText はかな化済みで、表示と Escape 復元は元テキストのまま")
+    func conversionRequestCarriesKanaizedModelInputText() async throws {
+        let provider = ScriptedConversionProvider()
+        let (coordinator, _) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("kyouhaiihida"))
+        coordinator.handle(.requestConversion)
+        try await eventually { (await provider.pendingCount) == 1 }
+
+        // モデルへはかな化済みテキストが渡り、表示はローマ字のまま。
+        #expect(await provider.receivedModelInputTexts == ["きょうはいいひだ"])
+        #expect(coordinator.state.displayedText == "kyouhaiihida")
+
+        await provider.resolveOldest(with: "今日はいい日だ")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+
+        // Escape 復元の対象は元のローマ字テキスト。
+        coordinator.handle(.restoreSource)
+        #expect(coordinator.state.displayedText == "kyouhaiihida")
+    }
+
+    @Test("保護語に一致する語はかな化されずにモデルへ渡る")
+    func protectedTermSkipsKanaization() async throws {
+        let provider = ScriptedConversionProvider()
+        var settings = ConversionSettings.default
+        settings.protectedTerms = ["make"]
+        let (coordinator, _) = makeCoordinator(provider: provider, settings: settings)
+
+        coordinator.handle(.insert("make wo tukau"))
+        coordinator.handle(.requestConversion)
+        try await eventually { (await provider.pendingCount) == 1 }
+        #expect(await provider.receivedModelInputTexts == ["make を つかう"])
+
+        await provider.resolveOldest(with: "make を使う")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "make を使う")
+    }
+
+    @Test("語境界なしで出現する保護語の喪失も元テキスト基準で検出する")
+    func lostProtectedTermWithoutWordBoundaryKeepsSource() async throws {
+        let provider = ScriptedConversionProvider()
+        var settings = ConversionSettings.default
+        settings.protectedTerms = ["bun"]
+        let (coordinator, _) = makeCoordinator(provider: provider, settings: settings)
+
+        // かな化後の modelInputText（ぶんをかくにん する）には「bun」が
+        // 現れないが、検証は元テキスト基準なので保護語の喪失を検出できる。
+        coordinator.handle(.insert("bunwokakunin suru"))
+        coordinator.handle(.requestConversion)
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "文を確認する")
+        try await eventually {
+            if case .failed = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "bunwokakunin suru")
+    }
+
+    @Test("かな化後にだけ現れる保護語の部分一致では正当な変換を拒否しない")
+    func kanaOverlapWithProtectedTermDoesNotRejectConversion() async throws {
+        let provider = ScriptedConversionProvider()
+        var settings = ConversionSettings.default
+        settings.protectedTerms = ["こと"]
+        let (coordinator, _) = makeCoordinator(provider: provider, settings: settings)
+
+        // かな化後の modelInputText（そのことば を きく）に「こと」が部分一致
+        // しても、元テキストに保護語が無いため正当な変換は受理される。
+        coordinator.handle(.insert("sonokotoba wo kiku"))
+        coordinator.handle(.requestConversion)
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "その言葉を聞く")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "その言葉を聞く")
+    }
+
     @Test("変換後の restoreSource で元テキストへ戻り、再変換できる")
     func restoreAndReconvert() async throws {
         let provider = ScriptedConversionProvider()

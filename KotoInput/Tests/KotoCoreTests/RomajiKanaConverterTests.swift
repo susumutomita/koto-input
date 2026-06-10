@@ -45,7 +45,22 @@ struct RomajiKanaConverterTests {
     func apostropheSeparatorSymmetry() {
         #expect(RomajiKanaConverter.normalize("zen'in") == "ぜんいん")
         #expect(RomajiKanaConverter.normalize("zenn'in") == "ぜんいん")
-        #expect(RomajiKanaConverter.normalize("kon'") == "こん")
+        #expect(RomajiKanaConverter.normalize("kin'yuu") == "きんゆう")
+    }
+
+    @Test("撥音の区切り以外のアポストロフィを含む語は原文を維持する")
+    func apostropheOutsideHatsuonPreserved() {
+        #expect(RomajiKanaConverter.normalize("goin'") == "goin'")
+        #expect(RomajiKanaConverter.normalize("hon'") == "hon'")
+        #expect(RomajiKanaConverter.normalize("kon'") == "kon'")
+        #expect(RomajiKanaConverter.normalize("zenn'") == "zenn'")
+        #expect(RomajiKanaConverter.normalize("ka'ki") == "ka'ki")
+    }
+
+    @Test("外来音 dhu / dhi を変換する")
+    func foreignSyllables() {
+        #expect(RomajiKanaConverter.normalize("dhu") == "でゅ")
+        #expect(RomajiKanaConverter.normalize("dhi") == "でぃ")
     }
 
     @Test("保護語はかな化から除外される")
@@ -57,6 +72,51 @@ struct RomajiKanaConverterTests {
         #expect(
             RomajiKanaConverter.normalize("kyou ha ame", protecting: [])
                 == "きょう は あめ"
+        )
+    }
+
+    @Test("保護語は語境界で照合し、語の途中の部分一致では保護しない")
+    func protectedTermsRespectWordBoundaries() {
+        #expect(RomajiKanaConverter.normalize("tabun", protecting: ["bun"]) == "たぶん")
+        #expect(RomajiKanaConverter.normalize("kotoba", protecting: ["koto"]) == "ことば")
+        #expect(RomajiKanaConverter.normalize("shibunka", protecting: ["bun"]) == "しぶんか")
+        // 保護されなくても大文字を含む語は原文維持の安全規則に落ちる。
+        #expect(RomajiKanaConverter.normalize("Codeo", protecting: ["Code"]) == "Codeo")
+    }
+
+    @Test("句読点が後続する保護語も語境界として保護する")
+    func protectedTermFollowedByPunctuation() {
+        #expect(RomajiKanaConverter.normalize("sudo,", protecting: ["sudo"]) == "sudo,")
+        #expect(
+            RomajiKanaConverter.normalize("sudo, jikkou", protecting: ["sudo"])
+                == "sudo, じっこう"
+        )
+    }
+
+    @Test("複数語フレーズの保護語は出現箇所全体を保護する")
+    func multiWordProtectedPhrase() {
+        #expect(
+            RomajiKanaConverter.normalize("bun run wo tukau", protecting: ["bun run"])
+                == "bun run を つかう"
+        )
+        #expect(RomajiKanaConverter.normalize("bun run wo tukau") == "ぶん るん を つかう")
+    }
+
+    @Test("同じ位置に重なる保護語は長い候補を優先する")
+    func longerProtectedTermWins() {
+        #expect(
+            RomajiKanaConverter.normalize(
+                "Claude Code de naosu",
+                protecting: ["Claude", "Claude Code"]
+            ) == "Claude Code で なおす"
+        )
+    }
+
+    @Test("保護語の前後空白は trim し、空白のみの保護語は無視する")
+    func protectedTermsAreSanitized() {
+        #expect(
+            RomajiKanaConverter.normalize("make wo tukau", protecting: [" make ", "  ", ""])
+                == "make を つかう"
         )
     }
 
@@ -78,12 +138,24 @@ struct RomajiKanaConverterTests {
         #expect(RomajiKanaConverter.normalize("scripts/foo.sh wo naosu") == "scripts/foo.sh を なおす")
         #expect(RomajiKanaConverter.normalize("user_id") == "user_id")
         #expect(RomajiKanaConverter.normalize("a.out") == "a.out")
+        #expect(RomajiKanaConverter.normalize("node.js") == "node.js")
+        #expect(RomajiKanaConverter.normalize("file.txt") == "file.txt")
+        #expect(
+            RomajiKanaConverter.normalize("./scripts/foo.sh wo jikkou")
+                == "./scripts/foo.sh を じっこう"
+        )
     }
 
-    @Test("文末の句読点に隣接していても変換する")
+    @Test("かな化した語に隣接する語末・語間の . , は 。、 へ変換する")
     func sentencePunctuationAllowed() {
-        #expect(RomajiKanaConverter.normalize("abunai.") == "あぶない.")
-        #expect(RomajiKanaConverter.normalize("hai, sou desu") == "はい, そう です")
+        #expect(RomajiKanaConverter.normalize("abunai.") == "あぶない。")
+        #expect(RomajiKanaConverter.normalize("soudesu.") == "そうです。")
+        #expect(RomajiKanaConverter.normalize("hai,soudesu.") == "はい、そうです。")
+        #expect(RomajiKanaConverter.normalize("hai, sou desu") == "はい、 そう です")
+        // かな化されない語に隣接する句読点は原文のまま残す。
+        #expect(RomajiKanaConverter.normalize("check, please") == "check, please")
+        // 。、へ変換できない記号は変換せずに残す。
+        #expect(RomajiKanaConverter.normalize("kyou; ashita") == "きょう; あした")
     }
 
     @Test("行頭の Markdown マーカーを壊さない")
