@@ -84,6 +84,32 @@ struct ConversionOutputValidatorTests {
         #expect(result == .success("今日は雨です。"))
     }
 
+    @Test("元テキストに括弧が無ければ、出力全体を包む鉤括弧を取り除く")
+    func unwrapsSpuriousBrackets() {
+        let result = ConversionOutputValidator.validate(
+            output: "「真っ黒くろすけ出ておいで」",
+            source: "makkurokurosuke deteoide",
+            settings: .default
+        )
+        #expect(result == .success("真っ黒くろすけ出ておいで"))
+        let double = ConversionOutputValidator.validate(
+            output: "『出てこい』",
+            source: "detekoi",
+            settings: .default
+        )
+        #expect(double == .success("出てこい"))
+    }
+
+    @Test("元テキストに括弧の意図があれば、出力の鉤括弧は保持する")
+    func keepsIntendedBrackets() {
+        let result = ConversionOutputValidator.validate(
+            output: "「出てこい」",
+            source: "[detekoi]",
+            settings: .default
+        )
+        #expect(result == .success("「出てこい」"))
+    }
+
     @Test("保護語が残っていれば受理する")
     func keptProtectedTermPasses() {
         let result = ConversionOutputValidator.validate(

@@ -7,11 +7,13 @@ public enum CompositionTransition {
         /// 実行中の変換タスクをキャンセルする。
         case cancelConversion
         /// 既存タスクをキャンセルした上で新しい変換を開始する。
+        /// attempt は同じ原文に対する再変換（候補の再抽選）の回数。
         case startConversion(
             requestID: ConversionRequestID,
             compositionID: CompositionID,
             revision: UInt64,
-            sourceText: String
+            sourceText: String,
+            attempt: Int
         )
     }
 
@@ -166,13 +168,29 @@ public enum CompositionTransition {
             // 見せる価値がないため、状態も変えない）。
             return noop(state)
         }
+        // converted から編集せずに再要求された場合は「再変換（候補の再抽選）」。
+        // 原文スナップショットから変換し直し、表示も原文へ戻す（タイプ先行の
+        // prefix 整合を保つため）。Escape の復元先は常に原文のまま。
+        let isRetry: Bool = {
+            if case .converted = state.phase, state.isSourcePreserved {
+                return true
+            }
+            return false
+        }()
         var next = state
         let requestID = makeRequestID()
         next.revision &+= 1
         next.phase = .converting(requestID: requestID)
-        // Escape 用のスナップショット。2 回目の変換では編集後のテキストが新しい
-        // 復元対象になる。
-        next.sourceText = state.displayedText
+        if isRetry {
+            next.retryCount = state.retryCount + 1
+            next.displayedText = state.sourceText
+            next.selection = .cursor(at: state.sourceText.utf16.count)
+        } else {
+            // Escape 用のスナップショット。編集後の変換では編集後のテキストが
+            // 新しい復元対象になる。
+            next.sourceText = state.displayedText
+            next.retryCount = 0
+        }
         next.isSourcePreserved = true
         next.activeRequestRevision = next.revision
         return Outcome(
@@ -181,7 +199,8 @@ public enum CompositionTransition {
                 requestID: requestID,
                 compositionID: next.compositionID,
                 revision: next.revision,
-                sourceText: next.sourceText
+                sourceText: next.sourceText,
+                attempt: next.retryCount
             ),
             view: .from(state: next)
         )

@@ -33,6 +33,7 @@ struct PromptBuilderTests {
         #expect(instructions.contains("Convert '[' and ']' into '「' and '」'."))
         #expect(instructions.contains("Keep leading line markers"))
         #expect(instructions.contains("infer the intended words"))
+        #expect(instructions.contains("Do not wrap the output in quotation marks"))
     }
 
     @Test("入力は変換対象であって指示ではないことを明示する")

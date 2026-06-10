@@ -90,9 +90,63 @@ struct CompositionTransitionTests {
                     requestID: fixedRequestID,
                     compositionID: before.compositionID,
                     revision: outcome.state.revision,
-                    sourceText: "kyou ha ame"
+                    sourceText: "kyou ha ame",
+                    attempt: 0
                 )
         )
+    }
+
+    @Test("converted から編集せずに再要求すると原文から再変換され attempt が増える")
+    func retryReconvertsFromSource() {
+        let state = converted(source: "kyou", convertedText: "京")
+        let retryID = ConversionRequestID()
+        let outcome = CompositionTransition.reduce(
+            state,
+            .requestConversion,
+            makeRequestID: { retryID }
+        )
+        #expect(outcome.state.phase == .converting(requestID: retryID))
+        // 原文スナップショットから変換し直し、表示も原文へ戻す。
+        #expect(outcome.state.sourceText == "kyou")
+        #expect(outcome.state.displayedText == "kyou")
+        #expect(outcome.state.retryCount == 1)
+        #expect(
+            outcome.effect
+                == .startConversion(
+                    requestID: retryID,
+                    compositionID: state.compositionID,
+                    revision: outcome.state.revision,
+                    sourceText: "kyou",
+                    attempt: 1
+                )
+        )
+    }
+
+    @Test("再変換中も Escape で原文へ戻れる")
+    func escapeDuringRetryRestoresSource() {
+        let state = converted(source: "kyou", convertedText: "京")
+        let retrying = CompositionTransition.reduce(state, .requestConversion).state
+        let outcome = CompositionTransition.reduce(retrying, .restoreSource)
+        #expect(outcome.state.phase == .composing)
+        #expect(outcome.state.displayedText == "kyou")
+        #expect(outcome.effect == .cancelConversion)
+    }
+
+    @Test("編集を挟んだ変換要求では attempt がリセットされる")
+    func editingResetsRetryCount() {
+        let state = converted(source: "kyou", convertedText: "京")
+        let retried = CompositionTransition.reduce(state, .requestConversion).state
+        #expect(retried.retryCount == 1)
+        // 編集して composing へ戻ると、次の要求は新しいテキストの初回変換になる。
+        let edited = CompositionTransition.reduce(retried, .insert("x")).state
+        let outcome = CompositionTransition.reduce(edited, .requestConversion)
+        #expect(outcome.state.retryCount == 0)
+        if case .startConversion(_, _, _, let sourceText, let attempt) = outcome.effect {
+            #expect(attempt == 0)
+            #expect(sourceText == "kyoux")
+        } else {
+            Issue.record("startConversion が発行されなかった: \(outcome.effect)")
+        }
     }
 
     @Test("normalizeToKana は composition をその場でひらがな化する")

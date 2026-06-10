@@ -13,7 +13,10 @@ public enum ConversionOutputValidator {
         source: String,
         settings: ConversionSettings
     ) -> Result<String, KotoError> {
-        let trimmed = trimLineEndings(output)
+        let trimmed = unwrapSpuriousBrackets(
+            trimLineEndings(output),
+            source: source
+        )
 
         if trimmed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return .failure(.emptyResponse)
@@ -37,6 +40,26 @@ public enum ConversionOutputValidator {
         }
 
         return .success(trimmed)
+    }
+
+    /// 小型モデルは出力全体を鉤括弧で包む癖がある（実機で観測）。元テキストに
+    /// 対応する括弧（「 または [）が無い場合に限り、外側の括弧を取り除く。
+    /// 内部の括弧や、入力者が意図した括弧には触れない。
+    static func unwrapSpuriousBrackets(_ text: String, source: String) -> String {
+        let pairs: [(open: Character, close: Character)] = [
+            ("「", "」"),
+            ("『", "』"),
+        ]
+        let sourceHasBracket =
+            source.contains("「") || source.contains("『")
+            || source.contains("[")
+        guard !sourceHasBracket else { return text }
+        for pair in pairs {
+            if text.count >= 2, text.first == pair.open, text.last == pair.close {
+                return String(text.dropFirst().dropLast())
+            }
+        }
+        return text
     }
 
     /// 生成が紛れ込ませた先頭・末尾の改行だけを取り除く。

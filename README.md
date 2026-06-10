@@ -66,6 +66,8 @@ brew install --cask ./Casks/koto.rb
 
 Enter は確定だけを行う。Claude Code / Codex へプロンプトを送信するのは、確定後にもう一度押す Enter。
 
+変換結果が気に入らない場合、編集せずにもう一度 `Shift + Space` を押すと別候補を再抽選する（初回は決定的、2 回目以降は揺らぎあり）。`Escape` を押せば何回再変換した後でも元のローマ字へ戻る。
+
 ## 設定
 
 設定は `com.susumutomita.inputmethod.Koto` ドメインの UserDefaults に JSON 文字列で保存する。

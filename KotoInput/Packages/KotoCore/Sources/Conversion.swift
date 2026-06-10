@@ -6,19 +6,23 @@ public struct ConversionRequest: Sendable {
     public let revision: UInt64
     public let sourceText: String
     public let settings: ConversionSettings
+    /// 同じ原文に対する再変換（候補の再抽選）の回数。0 が初回。
+    public let attempt: Int
 
     public init(
         id: ConversionRequestID,
         compositionID: CompositionID,
         revision: UInt64,
         sourceText: String,
-        settings: ConversionSettings
+        settings: ConversionSettings,
+        attempt: Int = 0
     ) {
         self.id = id
         self.compositionID = compositionID
         self.revision = revision
         self.sourceText = sourceText
         self.settings = settings
+        self.attempt = attempt
     }
 }
 

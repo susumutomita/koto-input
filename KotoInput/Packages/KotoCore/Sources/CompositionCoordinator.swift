@@ -35,13 +35,16 @@ public final class CompositionCoordinator {
             break
         case .cancelConversion:
             cancelConversionTask()
-        case .startConversion(let requestID, let compositionID, let revision, let sourceText):
+        case .startConversion(
+            let requestID, let compositionID, let revision, let sourceText, let attempt
+        ):
             cancelConversionTask()
             startConversion(
                 requestID: requestID,
                 compositionID: compositionID,
                 revision: revision,
-                sourceText: sourceText
+                sourceText: sourceText,
+                attempt: attempt
             )
         }
         if wasIdle, state.phase == .composing {
@@ -72,7 +75,8 @@ public final class CompositionCoordinator {
         requestID: ConversionRequestID,
         compositionID: CompositionID,
         revision: UInt64,
-        sourceText: String
+        sourceText: String,
+        attempt: Int
     ) {
         // 設定はタスク開始時点の不変スナップショットを使う。
         let settings = settingsRepository.load()
@@ -81,7 +85,8 @@ public final class CompositionCoordinator {
             compositionID: compositionID,
             revision: revision,
             sourceText: sourceText,
-            settings: settings
+            settings: settings,
+            attempt: attempt
         )
         let provider = self.provider
         conversionTask = Task { [weak self] in
