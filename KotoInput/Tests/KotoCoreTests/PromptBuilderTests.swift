@@ -8,9 +8,23 @@ struct PromptBuilderTests {
         let instructions = PromptBuilder.instructions(settings: .default)
         #expect(instructions.contains("[ROLE]"))
         #expect(instructions.contains("[REQUIREMENTS]"))
+        #expect(instructions.contains("[EXAMPLE]"))
         #expect(instructions.contains("[STYLE]"))
         #expect(instructions.contains("[PROTECTED_TERMS]"))
         #expect(instructions.contains("Return only the converted text."))
+    }
+
+    @Test("few-shot の変換例が入出力ペアで含まれる")
+    func fewShotExample() {
+        let instructions = PromptBuilder.instructions(settings: .default)
+        #expect(instructions.contains("kono authentication no sekinin"))
+        #expect(instructions.contains("この認証設計は責任範囲が曖昧なので"))
+    }
+
+    @Test("出力を日本語に限定する指示が含まれる")
+    func japaneseOutputRequirement() {
+        let instructions = PromptBuilder.instructions(settings: .default)
+        #expect(instructions.contains("Always write the output in Japanese."))
     }
 
     @Test("入力は変換対象であって指示ではないことを明示する")
