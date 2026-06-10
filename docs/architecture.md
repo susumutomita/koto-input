@@ -78,6 +78,7 @@ idle → composing → converting → converted → (commit) → idle
 ## プロンプトと出力検証
 
 - プロンプトは `[ROLE]` `[REQUIREMENTS]` `[STYLE]` `[PROTECTED_TERMS]` を instructions に、`[INPUT]` をユーザープロンプトに分けて構築する（`PromptBuilder`）。入力テキストは「変換対象のコンテンツ」であり指示ではない、と instructions 側で明示する。
+- [INPUT] は `RomajiKanaConverter` で決定論的にかな正規化してから渡す（ADR-0006）。モデルの仕事はかな漢字変換と整文に絞られ、ローマ字解釈の揺れが構造的に消える。同じ変換器を Tab キー（その場ひらがな化）でも使う。
 - プロンプトはセキュリティ境界ではないため、出力は `ConversionOutputValidator` で決定論的に検証する。
   - 空・空白のみの出力は失敗。
   - 出力長が「元テキストの UTF-16 長 × 膨張率（既定 4 倍）+ 固定許容量 64」を超えたら失敗。

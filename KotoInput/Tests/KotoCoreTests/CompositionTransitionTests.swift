@@ -95,6 +95,25 @@ struct CompositionTransitionTests {
         )
     }
 
+    @Test("normalizeToKana は composition をその場でひらがな化する")
+    func normalizeToKanaConverts() {
+        let before = compose("kyou ha ame")
+        let outcome = CompositionTransition.reduce(before, .normalizeToKana)
+        #expect(outcome.state.phase == .composing)
+        #expect(outcome.state.displayedText == "きょう は あめ")
+        #expect(outcome.state.revision == before.revision + 1)
+        #expect(outcome.state.selection == .cursor(at: "きょう は あめ".utf16.count))
+    }
+
+    @Test("converting 中の normalizeToKana は prefix が変わるため変換をキャンセルする")
+    func normalizeToKanaDuringConversionCancels() {
+        let before = converting("kyou")
+        let outcome = CompositionTransition.reduce(before, .normalizeToKana)
+        #expect(outcome.state.phase == .composing)
+        #expect(outcome.state.displayedText == "きょう")
+        #expect(outcome.effect == .cancelConversion)
+    }
+
     @Test("空白のみのテキストでは変換要求を無視する")
     func requestConversionIgnoresWhitespaceOnly() {
         let before = compose("   ")

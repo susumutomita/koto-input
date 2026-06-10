@@ -38,12 +38,13 @@ public enum PromptBuilder {
         )
 
         // 小型のオンデバイスモデルは few-shot の有無で指示追従の安定性が
-        // 大きく変わるため、変換例を 1 つ固定で入れる。
+        // 大きく変わるため、変換例を 1 つ固定で入れる。Input はモデルが実際に
+        // 受け取る形（前段かな正規化後）に合わせる。
         sections.append(
             """
             [EXAMPLE]
             Input:
-            kono authentication no sekinin han'i ga aimai dakara application layer dake de check suru noha abunai
+            この authentication の せきにん はんい が あいまい だから application layer だけ で check する のは あぶない
             Output:
             この認証設計は責任範囲が曖昧なので、アプリケーション層だけでチェックするのは危険です。
             """
@@ -69,8 +70,12 @@ public enum PromptBuilder {
         return sections.joined(separator: "\n\n")
     }
 
+    /// モデルへ渡す前にローマ字を決定論的にひらがな化する（ADR-0006）。
+    /// モデルの仕事を得意な「かな漢字変換 + 整文」に絞り、ローマ字解釈の
+    /// 揺れを構造的に排除する。Escape 復元・splice・保護語検証は引き続き
+    /// 打たれたままの sourceText を基準にするため、表示系の挙動は変わらない。
     public static func prompt(sourceText: String) -> String {
-        "[INPUT]\n" + sourceText
+        "[INPUT]\n" + RomajiKanaConverter.normalize(sourceText)
     }
 
     static func styleInstruction(_ style: WritingStyle) -> String {
