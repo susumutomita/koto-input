@@ -19,7 +19,8 @@ public enum PromptBuilder {
             """
             [REQUIREMENTS]
             - Preserve the author's meaning, intent, and level of certainty.
-            - Convert romaji, English, and mixed Japanese into natural Japanese.
+            - Convert hiragana, romaji, English, and mixed Japanese into \
+            natural Japanese.
             - Always write the output in Japanese.
             - Use kanji where it makes the Japanese natural.
             - If the romaji contains obvious typos, infer the intended words \

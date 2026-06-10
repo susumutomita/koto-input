@@ -208,3 +208,22 @@ Issue 13（https://github.com/susumutomita/koto-input/issues/13 ）。Boiling Eg
 #### 進捗ログ
 
 - 2026-06-10: feature/romaji-kana-layer が未 push のため、Issue 15 記載のバグ記述から該当分（アポストロフィ対称性・保護語の層間不整合）を独自修正。・゠/々〆 の passthrough は本実装では非 ASCII 素通しのため該当なし。release workflow / cask / 署名対応を追加。
+
+### Issue ゼロ化: 仕様書・E2E シナリオの整備とクローズ - 2026-06-10
+
+#### 目的
+
+open Issue（6〜11、15）をゼロにする。ローカルセッションの /feature フロー Issue 群（6〜10、15）は、main の実装（PR 14・16）が機能要件を満たしているため、不足している成果物（仕様書・E2E シナリオ・instructions 文言）を補って完了させる。
+
+#### タスク
+
+- [x] docs/specs/2026-06-10-ローマ字かな変換層.md（要件・受け入れ基準と実装テストの対応・UI/UX 決定・テスト計画・設計差分の記録）
+- [x] docs/terminal-compatibility.md にかな正規化の E2E シナリオを追加
+- [x] PromptBuilder の REQUIREMENTS を「ひらがな・ローマ字・英語・日本語混在」前提へ更新（Issue 9）
+- [x] Issue 10 の実測ケース kyouhaiihida → きょうはいいひだ をテストで固定
+- [ ] ゲート → コミット → push → PR → CI green → マージ
+- [ ] Issue 6/7/8/9/10/15 をクローズ（実装との対応をコメント）。Issue 11 は配布基盤完了としてクローズ（初回リリースはオーナーの鍵設定後）
+
+#### 進捗ログ
+
+- 2026-06-10: feature/romaji-kana-layer は未 push のまま。main の実装を正として成果物ギャップを補完。

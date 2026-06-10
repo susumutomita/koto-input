@@ -31,6 +31,16 @@ Issue 1 の Scope 5 で要求される手動検証の記録。実機（macOS 26 
 | iTerm2 | Claude Code | 未検証 | |
 | iTerm2 | Codex CLI | 未検証 | |
 
+## かな正規化の E2E シナリオ（Issue 10）
+
+ローマ字かな変換層（ADR-0006）の実機確認。各ターミナルで以下を実施し、結果をマトリクスの備考に記録する。
+
+1. Koto を選択し、`kyouhaiihida` と分かち書きなしで入力する。
+2. `Tab` を押す → marked text が「きょうはいいひだ」になること（即時・AI 不要）。
+3. `Escape` → `kyouhaiihida` に戻ること。
+4. もう一度ひらがな化せずに `Shift + Space` → 「今日はいい日だ」相当の自然な日本語になること（前段かな正規化によりモデルの誤読が出ないこと）。
+5. `Claude Code wo tamesu` で `Shift + Space` → 出力に `Claude Code` が原文のまま残ること（保護語）。
+
 ## 既知の制限（実装由来）
 
 - `Control + Enter` は composition 内に改行を挿入するが、ターミナル側の行レンダリングによっては marked text の複数行表示が崩れる場合がある。挙動はターミナル実装依存。
