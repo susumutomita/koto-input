@@ -13,8 +13,11 @@ public enum ConversionOutputValidator {
         source: String,
         settings: ConversionSettings
     ) -> Result<String, KotoError> {
-        let trimmed = unwrapSpuriousBrackets(
-            trimLineEndings(output),
+        let trimmed = stripSpuriousTrailingPeriod(
+            unwrapSpuriousBrackets(
+                trimLineEndings(output),
+                source: source
+            ),
             source: source
         )
 
@@ -60,6 +63,24 @@ public enum ConversionOutputValidator {
             }
         }
         return text
+    }
+
+    /// 小型モデルは入力に無い文末の句点を付け足す癖がある（実機で観測）。
+    /// 元テキストが文末句読点で終わっていない場合に限り、出力末尾の句点を
+    /// 取り除く。文中の句読点はユーザーの意図か文の整形なので触れない。
+    static func stripSpuriousTrailingPeriod(_ text: String, source: String) -> String {
+        let sentenceEndings: Set<Character> = [
+            "。", "．", ".", "、", ",", "!", "！", "?", "？",
+        ]
+        let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let last = trimmedSource.last, sentenceEndings.contains(last) {
+            return text
+        }
+        var result = Substring(text)
+        while let last = result.last, last == "。" || last == "．" {
+            result.removeLast()
+        }
+        return String(result)
     }
 
     /// 生成が紛れ込ませた先頭・末尾の改行だけを取り除く。

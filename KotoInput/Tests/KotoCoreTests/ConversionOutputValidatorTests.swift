@@ -7,7 +7,7 @@ struct ConversionOutputValidatorTests {
     func trimsOnlyLineEndings() {
         let result = ConversionOutputValidator.validate(
             output: "\n今日は雨です。\n明日は晴れです。\r\n",
-            source: "kyou ha ame, ashita ha hare",
+            source: "kyou ha ame, ashita ha hare.",
             settings: .default
         )
         #expect(result == .success("今日は雨です。\n明日は晴れです。"))
@@ -78,7 +78,7 @@ struct ConversionOutputValidatorTests {
     func absentProtectedTermNotRequired() {
         let result = ConversionOutputValidator.validate(
             output: "今日は雨です。",
-            source: "kyou ha ame",
+            source: "kyou ha ame.",
             settings: .default
         )
         #expect(result == .success("今日は雨です。"))
@@ -100,6 +100,57 @@ struct ConversionOutputValidatorTests {
         #expect(double == .success("出てこい"))
     }
 
+    @Test("元テキストが句読点で終わらなければ、出力末尾の句点を取り除く")
+    func stripsSpuriousTrailingPeriod() {
+        let result = ConversionOutputValidator.validate(
+            output: "SWIFTはいい言語です。",
+            source: "SWIFThaiigengodesu",
+            settings: .default
+        )
+        #expect(result == .success("SWIFTはいい言語です"))
+        // 文中の句点は保持し、末尾だけ取り除く。
+        let multi = ConversionOutputValidator.validate(
+            output: "今日は雨です。明日は晴れです。",
+            source: "kyou ha ame ashita ha hare",
+            settings: .default
+        )
+        #expect(multi == .success("今日は雨です。明日は晴れです"))
+        // 全角ピリオドも同様に取り除く。
+        let fullWidth = ConversionOutputValidator.validate(
+            output: "今日は雨です．",
+            source: "kyou ha ame",
+            settings: .default
+        )
+        #expect(fullWidth == .success("今日は雨です"))
+    }
+
+    @Test("元テキストが句読点で終わっていれば、出力末尾の句点を保持する")
+    func keepsIntendedTrailingPeriod() {
+        let result = ConversionOutputValidator.validate(
+            output: "今日は雨です。",
+            source: "kyou ha ame.",
+            settings: .default
+        )
+        #expect(result == .success("今日は雨です。"))
+        // 末尾の空白・改行は無視して元テキストの句読点を判定する。
+        let padded = ConversionOutputValidator.validate(
+            output: "今日は雨です。",
+            source: "kyou ha ame. \n",
+            settings: .default
+        )
+        #expect(padded == .success("今日は雨です。"))
+    }
+
+    @Test("鉤括弧の除去後に残った末尾の句点も取り除く")
+    func stripsPeriodAfterUnwrappingBrackets() {
+        let result = ConversionOutputValidator.validate(
+            output: "「今日は雨です。」",
+            source: "kyou ha ame",
+            settings: .default
+        )
+        #expect(result == .success("今日は雨です"))
+    }
+
     @Test("元テキストに括弧の意図があれば、出力の鉤括弧は保持する")
     func keepsIntendedBrackets() {
         let result = ConversionOutputValidator.validate(
@@ -114,7 +165,7 @@ struct ConversionOutputValidatorTests {
     func keptProtectedTermPasses() {
         let result = ConversionOutputValidator.validate(
             output: "Claude Code を直します。",
-            source: "Claude Code wo naosu",
+            source: "Claude Code wo naosu.",
             settings: .default
         )
         #expect(result == .success("Claude Code を直します。"))
@@ -126,7 +177,7 @@ struct ConversionOutputValidatorTests {
         settings.protectedTerms = [" ", "\t", ""]
         let result = ConversionOutputValidator.validate(
             output: "今日は雨です。",
-            source: "kyou ha ame",
+            source: "kyou ha ame.",
             settings: settings
         )
         #expect(result == .success("今日は雨です。"))

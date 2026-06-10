@@ -140,6 +140,29 @@ struct RomajiKanaConverterTests {
         #expect(RomajiKanaConverter.normalize("Claude Code de naosu") == "Claude Code で なおす")
     }
 
+    @Test("頭字語に連結したローマ字をかな化する（Issue 21 の実測ケース）")
+    func acronymGluedRomajiConverted() {
+        #expect(
+            RomajiKanaConverter.normalize("SWIFThaiigengodesu") == "SWIFTはいいげんごです"
+        )
+        #expect(RomajiKanaConverter.normalize("URLshori") == "URLしょり")
+        // 語末の句読点もかな化された語に隣接していれば 。 へ変換する。
+        #expect(
+            RomajiKanaConverter.normalize("SWIFThaiigengodesu.") == "SWIFTはいいげんごです。"
+        )
+    }
+
+    @Test("CamelCase・短い連結・解釈不能セグメントの識別子は原文を維持する")
+    func mixedCaseIdentifiersPreserved() {
+        // 大文字 1 文字区切りの CamelCase は頭字語分割の対象外。
+        #expect(RomajiKanaConverter.normalize("KotoInput") == "KotoInput")
+        #expect(RomajiKanaConverter.normalize("deCode") == "deCode")
+        // 小文字セグメントが 5 文字未満（key）は変換しない。
+        #expect(RomajiKanaConverter.normalize("APIkey") == "APIkey")
+        // 小文字セグメントがローマ字として解釈できない（arser）。
+        #expect(RomajiKanaConverter.normalize("HTMLParser") == "HTMLParser")
+    }
+
     @Test("パス・識別子に隣接する単語は変換しない")
     func pathsAndIdentifiersPreserved() {
         #expect(RomajiKanaConverter.normalize("scripts/foo.sh wo naosu") == "scripts/foo.sh を なおす")

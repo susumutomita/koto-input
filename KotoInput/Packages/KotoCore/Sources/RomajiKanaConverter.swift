@@ -9,7 +9,9 @@ import Foundation
 ///
 /// 安全規則: 変換するのは「小文字だけで構成され、ローマ字として最後まで
 /// 解釈できる単語」のみ。英単語（解釈不能）・大文字を含む単語（固有名詞）・
-/// パスや識別子に隣接する単語・保護語はそのまま残す。
+/// パスや識別子に隣接する単語・保護語はそのまま残す。例外として、長さ 2 以上の
+/// 大文字連続（頭字語）にローマ字が連結した語（`SWIFThaiigengodesu` 等）は
+/// セグメント単位でかな化する（convertMixedCaseWord）。
 public enum RomajiKanaConverter {
     /// テキスト中の変換可能なローマ字単語だけをひらがなへ置き換える。
     /// `protectedTerms` は語境界で照合した出現箇所だけ原文のまま保持する
@@ -99,18 +101,27 @@ public enum RomajiKanaConverter {
             let previous = index > 0 ? chars[index - 1] : nil
             let next = end < chars.count ? chars[end] : nil
             let afterNext = end + 1 < chars.count ? chars[end + 1] : nil
-            if isConvertibleContext(previous: previous, next: next, afterNext: afterNext),
-                !word.contains(where: { $0.isUppercase }),
-                let kana = convertWord(word)
-            {
-                result += kana
-                // かなへ変換した語に隣接する語末・語間の . , は文の句読点として
-                // 。、 へ変換する。パス・識別子（node.js 等）は文脈判定で語自体が
-                // 変換されないため、ここへは来ない。
-                if let next, let mark = punctuationKana[next] {
-                    result += mark
-                    index = end + 1
-                    continue
+            if isConvertibleContext(previous: previous, next: next, afterNext: afterNext) {
+                let conversion: (text: String, lastConverted: Bool)?
+                if word.contains(where: { $0.isUppercase }) {
+                    conversion = convertMixedCaseWord(word)
+                } else if let kana = convertWord(word) {
+                    conversion = (kana, true)
+                } else {
+                    conversion = nil
+                }
+                if let conversion {
+                    result += conversion.text
+                    // かなへ変換した語に隣接する語末・語間の . , は文の句読点として
+                    // 。、 へ変換する。パス・識別子（node.js 等）は文脈判定で語自体が
+                    // 変換されないため、ここへは来ない。
+                    if conversion.lastConverted, let next, let mark = punctuationKana[next] {
+                        result += mark
+                        index = end + 1
+                        continue
+                    }
+                } else {
+                    result += word
                 }
             } else {
                 result += word
@@ -118,6 +129,47 @@ public enum RomajiKanaConverter {
             index = end
         }
         return result
+    }
+
+    /// 大文字語とローマ字が連結した語（`SWIFThaiigengodesu` 等）を、大文字の
+    /// 連続と小文字の連続のセグメントに分割し、小文字セグメントが 5 文字以上
+    /// かつローマ字として完全に解釈できる場合だけかな化する。
+    ///
+    /// 識別子を壊さない安全条件:
+    /// - 長さ 2 以上の大文字連続（頭字語）を含む語だけが分割対象。
+    ///   `KotoInput` / `deCode` のような CamelCase（大文字 1 文字区切り）は対象外。
+    /// - どのセグメントも変換されなければ nil（呼び出し側で語全体を原文維持）。
+    ///   `HTMLParser` は "arser" が解釈不能なため不変。
+    static func convertMixedCaseWord(_ word: String) -> (text: String, lastConverted: Bool)? {
+        var segments: [(text: String, isUpper: Bool)] = []
+        for character in word {
+            let upper = character.isUppercase
+            if let lastIndex = segments.indices.last, segments[lastIndex].isUpper == upper {
+                segments[lastIndex].text.append(character)
+            } else {
+                segments.append((String(character), upper))
+            }
+        }
+        guard segments.contains(where: { $0.isUpper && $0.text.count >= 2 }) else {
+            return nil
+        }
+        var out = ""
+        var convertedAny = false
+        var lastConverted = false
+        for segment in segments {
+            if !segment.isUpper, segment.text.count >= 5,
+                let kana = convertWord(segment.text)
+            {
+                out += kana
+                convertedAny = true
+                lastConverted = true
+            } else {
+                out += segment.text
+                lastConverted = false
+            }
+        }
+        guard convertedAny else { return nil }
+        return (out, lastConverted)
     }
 
     /// 単語全体がローマ字として解釈できればひらがなを返す。できなければ nil。
