@@ -15,6 +15,8 @@ public struct CompositionState: Equatable, Sendable {
     /// true のとき sourceText は変換要求時のスナップショットとして凍結されており、
     /// composing 中の編集で displayedText に追従しない。
     public var isSourcePreserved: Bool
+    /// 同じ原文に対する再変換（候補の再抽選）の回数。編集でリセットされる。
+    public var retryCount: Int
 
     public init(
         compositionID: CompositionID,
@@ -24,7 +26,8 @@ public struct CompositionState: Equatable, Sendable {
         selection: TextSelection,
         revision: UInt64,
         activeRequestRevision: UInt64?,
-        isSourcePreserved: Bool
+        isSourcePreserved: Bool,
+        retryCount: Int = 0
     ) {
         self.compositionID = compositionID
         self.phase = phase
@@ -34,6 +37,7 @@ public struct CompositionState: Equatable, Sendable {
         self.revision = revision
         self.activeRequestRevision = activeRequestRevision
         self.isSourcePreserved = isSourcePreserved
+        self.retryCount = retryCount
     }
 
     /// 新しい composition ID を持つ初期状態。

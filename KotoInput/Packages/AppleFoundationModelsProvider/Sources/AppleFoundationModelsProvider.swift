@@ -101,12 +101,13 @@ public actor AppleFoundationModelsProvider: TextConversionProvider {
             let session =
                 takePrepared(matching: instructions)
                 ?? LanguageModelSession(instructions: instructions)
-            // sampling は greedy 固定。入力変換は同じ入力に同じ出力を返すべきで、
-            // 温度付きサンプリングだと変換結果が毎回揺れる。
-            let response = try await session.respond(
-                to: prompt,
-                options: GenerationOptions(sampling: .greedy)
-            )
+            // 初回（attempt 0）は greedy で決定的に変換する。再変換（attempt 1
+            // 以降）は温度付きサンプリングで別候補を抽選する（Issue 19）。
+            let options =
+                request.attempt == 0
+                ? GenerationOptions(sampling: .greedy)
+                : GenerationOptions(temperature: 0.8)
+            let response = try await session.respond(to: prompt, options: options)
             return ConversionResult(
                 requestID: request.id,
                 compositionID: request.compositionID,

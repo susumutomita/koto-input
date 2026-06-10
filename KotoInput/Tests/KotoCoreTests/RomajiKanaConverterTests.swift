@@ -8,6 +8,13 @@ struct RomajiKanaConverterTests {
         #expect(RomajiKanaConverter.normalize("kyou ha ame") == "きょう は あめ")
     }
 
+    @Test("分かち書きなしの長いローマ字も正しくかな化する（Issue 10 の実測ケース）")
+    func unspacedSentence() {
+        // 生のローマ字をモデルへ渡すと「きょうかいいひだ」等に誤読された実測例。
+        // 決定論かな化により分かち書きの問題がモデルに渡る前に解決される。
+        #expect(RomajiKanaConverter.normalize("kyouhaiihida") == "きょうはいいひだ")
+    }
+
     @Test("促音を子音の重ねから変換する")
     func sokuon() {
         #expect(RomajiKanaConverter.normalize("gakkou") == "がっこう")
