@@ -106,14 +106,13 @@ Linux など Swift toolchain の無い環境では、CI の macOS ジョブが s
 | ランタイム（開発ツール） | Bun |
 | リンター/フォーマッター | Biome |
 | ドキュメント lint | textlint |
-| Git フック | Husky + lint-staged |
+| Git フック | Husky |
 
 ```bash
-make install        # 依存をインストール（ignore-scripts）
+make install        # 開発ツールの依存をインストール（ignore-scripts）
 make setup-hooks    # Husky hooks をセットアップ
 make lint           # biome check
-make typecheck      # tsc --noEmit（全ワークスペース）
-make test           # bun test（全ワークスペース）
+make lint_text      # textlint（README）
 make before-commit  # コミット前チェック（harness + textlint + lint）
 ```
 
@@ -128,7 +127,6 @@ make before-commit  # コミット前チェック（harness + textlint + lint）
 │   ├── Packages/AppleFoundationModelsProvider/
 │   └── Tests/
 ├── docs/                   # アーキテクチャ・ADR・互換性マトリクス
-├── packages/               # bun ワークスペース（テンプレート由来）
 ├── scripts/                # architecture-harness / Koto.app ビルド
 ├── biome.json
 ├── CLAUDE.md               # AI エージェント向け開発ガイドライン
