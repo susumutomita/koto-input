@@ -12,45 +12,71 @@ import Foundation
 /// パスや識別子に隣接する単語・保護語はそのまま残す。
 public enum RomajiKanaConverter {
     /// テキスト中の変換可能なローマ字単語だけをひらがなへ置き換える。
-    /// `protectedTerms` に一致する区間は語の途中でも原文のまま保持する
-    /// （validator の保護語検証と層を揃えるため）。
+    /// `protectedTerms` は語境界で照合した出現箇所だけ原文のまま保持する
+    /// （validator の保護語検証と層を揃えるため）。語の途中の部分一致
+    /// （term `bun` と語 `tabun` 等）で保護すると語を破壊するため一致させない。
     public static func normalize(
         _ text: String,
         protecting protectedTerms: [String] = []
     ) -> String {
-        let terms = protectedTerms.filter { !$0.isEmpty }
+        // サニタイズは ConversionSettings に一元化した規則を使い、raw な配列を
+        // 受け取っても安全にする。同位置で重なる候補は長いフレーズを優先する。
+        let terms = ConversionSettings.sanitizeProtectedTerms(protectedTerms)
+            .sorted { $0.count > $1.count }
+            .map(Array.init)
         guard !terms.isEmpty else {
             return normalizeSegment(text)
         }
+        let chars = Array(text)
         var result = ""
-        var remaining = Substring(text)
-        while !remaining.isEmpty {
-            // 最も手前に現れる保護語（同位置なら最長）を探す。
-            var earliest: (range: Range<Substring.Index>, term: String)?
-            for term in terms {
-                guard let range = remaining.range(of: term) else { continue }
-                if let current = earliest {
-                    if range.lowerBound < current.range.lowerBound
-                        || (range.lowerBound == current.range.lowerBound
-                            && term.count > current.term.count)
-                    {
-                        earliest = (range, term)
-                    }
-                } else {
-                    earliest = (range, term)
-                }
+        var segment = ""
+        var index = 0
+        // テキスト先頭は語境界。
+        var atTermBoundary = true
+        while index < chars.count {
+            if atTermBoundary,
+                let length = protectedTermLength(in: chars, at: index, terms: terms)
+            {
+                result += normalizeSegment(segment)
+                segment = ""
+                result += String(chars[index..<(index + length)])
+                index += length
+                atTermBoundary = false
+                continue
             }
-            guard let found = earliest else {
-                result += normalizeSegment(String(remaining))
-                break
-            }
-            result += normalizeSegment(
-                String(remaining[remaining.startIndex..<found.range.lowerBound])
-            )
-            result += found.term
-            remaining = remaining[found.range.upperBound...]
+            let character = chars[index]
+            segment.append(character)
+            atTermBoundary = isTermBoundary(character)
+            index += 1
         }
+        result += normalizeSegment(segment)
         return result
+    }
+
+    /// index（語境界直後）から始まり、終端が語境界（テキスト末尾・空白・
+    /// 変換可能句読点）である保護語の一致長を返す。複数語フレーズ
+    /// （`Claude Code` 等）も 1 つの出現として照合する。
+    private static func protectedTermLength(
+        in chars: [Character],
+        at index: Int,
+        terms: [[Character]]
+    ) -> Int? {
+        for term in terms {
+            let end = index + term.count
+            guard end <= chars.count, chars[index..<end].elementsEqual(term) else {
+                continue
+            }
+            if end == chars.count || isTermBoundary(chars[end]) {
+                return term.count
+            }
+        }
+        return nil
+    }
+
+    /// 保護語の語境界。空白に加えて、かな化が 。、 へ変換する句読点を区切りに
+    /// 含め、`sudo,` のような出現も保護できるようにする。
+    private static func isTermBoundary(_ character: Character) -> Bool {
+        character.isWhitespace || punctuationKana[character] != nil
     }
 
     /// 保護語を含まない区間の変換本体。
@@ -78,6 +104,14 @@ public enum RomajiKanaConverter {
                 let kana = convertWord(word)
             {
                 result += kana
+                // かなへ変換した語に隣接する語末・語間の . , は文の句読点として
+                // 。、 へ変換する。パス・識別子（node.js 等）は文脈判定で語自体が
+                // 変換されないため、ここへは来ない。
+                if let next, let mark = punctuationKana[next] {
+                    result += mark
+                    index = end + 1
+                    continue
+                }
             } else {
                 result += word
             }
@@ -105,21 +139,18 @@ public enum RomajiKanaConverter {
                 rest.removeFirst()
                 continue
             }
-            // 音節区切りのアポストロフィ（zenn'in の nn の後の ' 等）は
-            // 読み飛ばす。語頭の ' は変換対象にしない。
-            if first == "'" {
-                guard !out.isEmpty else { return nil }
-                rest.removeFirst()
-                continue
-            }
-            // 撥音。末尾・子音前（y を除く）の n、n'、nn、ヘボン式の m+b/m/p。
+            // 撥音。末尾・子音前（y を除く）の n、区切り明示の n' / nn'、nn、
+            // ヘボン式の m+b/m/p。アポストロフィは n の直後かつその次が母音 / y
+            // の場合だけ撥音の区切りとして消費する。それ以外の ' を含む語
+            // （goin' / don't / ka'ki 等の英語）は語全体を原文維持にする。
             if first == "n" {
-                if rest.hasPrefix("n'") {
+                let following = rest.dropFirst().first
+                if following == "'" {
+                    guard isVowelOrY(rest.dropFirst(2).first) else { return nil }
                     out += "ん"
                     rest.removeFirst(2)
                     continue
                 }
-                let following = rest.dropFirst().first
                 if following == "n" {
                     // onna → おんな、konnichiha → こんにちは のように、2 つ目の n が
                     // 次の音節（na 行・nya 行）の頭になる場合は 1 文字だけ消費する。
@@ -128,6 +159,12 @@ public enum RomajiKanaConverter {
                     if let afterPair, isVowel(afterPair) || afterPair == "y" {
                         out += "ん"
                         rest.removeFirst()
+                    } else if afterPair == "'" {
+                        // nn' も区切り明示（zenn'in → ぜんいん）。直後に母音 / y が
+                        // 無い zenn' 等は原文維持。
+                        guard isVowelOrY(rest.dropFirst(3).first) else { return nil }
+                        out += "ん"
+                        rest.removeFirst(3)
                     } else {
                         out += "ん"
                         rest.removeFirst(2)
@@ -184,6 +221,12 @@ public enum RomajiKanaConverter {
         "aiueo".contains(character)
     }
 
+    /// 撥音区切りの ' の直後がな行・にゃ行の頭（母音 / y）になり得るか。
+    private static func isVowelOrY(_ character: Character?) -> Bool {
+        guard let character else { return false }
+        return isVowel(character) || character == "y"
+    }
+
     /// 単語の前後の文字から、変換してよい文脈かを判定する。
     /// パス・拡張子・識別子（`/` `.` `_` 等に隣接）は変換しない。
     static func isConvertibleContext(
@@ -192,9 +235,10 @@ public enum RomajiKanaConverter {
         afterNext: Character?
     ) -> Bool {
         if let previous {
+            // 読点（,）の直後は hai,soudesu の soudesu のように語頭として扱う。
             let okPrevious =
                 previous.isWhitespace || !previous.isASCII
-                || "([{\"'「（【『".contains(previous)
+                || "([{\"'「（【『,".contains(previous)
             if !okPrevious {
                 return false
             }
@@ -206,15 +250,27 @@ public enum RomajiKanaConverter {
         if ")]}\"'」）】』!?".contains(next) {
             return true
         }
-        // 文末の . , ; : は許可。直後にさらに文字が続く場合（拡張子・URL 等）は
+        // 読点（,）はパス・識別子にほぼ現れないため、直後に語が続いても
+        // 文の区切りとして変換を許す（hai,soudesu → はい、そうです）。
+        if next == "," {
+            return true
+        }
+        // 文末の . ; : は許可。直後にさらに文字が続く場合（拡張子・URL 等）は
         // 識別子とみなして変換しない。
-        if ".,;:".contains(next) {
+        if ".;:".contains(next) {
             return afterNext == nil || afterNext!.isWhitespace || !afterNext!.isASCII
         }
         return false
     }
 
     // MARK: - 変換表（ヘボン式・訓令式の標準対応）
+
+    /// かなへ変換した語に隣接する場合だけ 。、 へ変換する句読点。
+    /// 保護語の語境界判定（isTermBoundary）もこの表から導出する。
+    static let punctuationKana: [Character: String] = [
+        ".": "。",
+        ",": "、",
+    ]
 
     static let syllables: [String: String] = [
         "a": "あ", "i": "い", "u": "う", "e": "え", "o": "お",
@@ -233,7 +289,7 @@ public enum RomajiKanaConverter {
         "tya": "ちゃ", "tyu": "ちゅ", "tyo": "ちょ",
         "cha": "ちゃ", "chi": "ち", "chu": "ちゅ", "che": "ちぇ", "cho": "ちょ",
         "tsa": "つぁ", "tsi": "つぃ", "tsu": "つ", "tse": "つぇ", "tso": "つぉ",
-        "thi": "てぃ", "dhi": "でぃ",
+        "thi": "てぃ", "dhi": "でぃ", "dhu": "でゅ",
         "da": "だ", "di": "ぢ", "du": "づ", "de": "で", "do": "ど",
         "dya": "ぢゃ", "dyu": "ぢゅ", "dyo": "ぢょ",
         "na": "な", "ni": "に", "nu": "ぬ", "ne": "ね", "no": "の",

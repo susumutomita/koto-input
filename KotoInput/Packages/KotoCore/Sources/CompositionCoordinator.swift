@@ -28,7 +28,11 @@ public final class CompositionCoordinator {
 
     public func handle(_ command: CompositionCommand) {
         let wasIdle = state.phase == .idle
-        let outcome = CompositionTransition.reduce(state, command)
+        let outcome = CompositionTransition.reduce(
+            state,
+            command,
+            protectedTerms: protectedTerms(for: command)
+        )
         state = outcome.state
         switch outcome.effect {
         case .none:
@@ -52,6 +56,13 @@ public final class CompositionCoordinator {
             prewarmProvider()
         }
         renderer(outcome.view)
+    }
+
+    /// normalizeToKana だけが設定の保護語を参照する。キーストローク毎の
+    /// 設定ロードを避けるため、他のコマンドでは空配列を渡す。
+    private func protectedTerms(for command: CompositionCommand) -> [String] {
+        guard case .normalizeToKana = command else { return [] }
+        return settingsRepository.load().sanitizedProtectedTerms
     }
 
     /// fire-and-forget の prewarm。失敗してもユーザー影響はない（変換時に

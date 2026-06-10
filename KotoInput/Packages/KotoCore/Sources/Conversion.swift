@@ -4,10 +4,22 @@ public struct ConversionRequest: Sendable {
     public let id: ConversionRequestID
     public let compositionID: CompositionID
     public let revision: UInt64
+    /// ユーザーが打った元テキスト。出力検証（保護語・膨張率）の基準であり、
+    /// 表示・Escape 復元と同じテキストを指す。
     public let sourceText: String
     public let settings: ConversionSettings
     /// 同じ原文に対する再変換（候補の再抽選）の回数。0 が初回。
     public let attempt: Int
+
+    /// モデルへ渡すかな化済み入力。プロンプト構築にのみ使う。
+    /// 評価は呼び出し側（provider の actor コンテキスト）で行われ、
+    /// メインアクターを塞がない。
+    public var modelInputText: String {
+        RomajiKanaConverter.normalize(
+            sourceText,
+            protecting: settings.sanitizedProtectedTerms
+        )
+    }
 
     public init(
         id: ConversionRequestID,

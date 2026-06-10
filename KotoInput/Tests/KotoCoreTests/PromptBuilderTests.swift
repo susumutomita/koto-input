@@ -86,26 +86,53 @@ struct PromptBuilderTests {
         #expect(!instructions.contains("  \n "))
     }
 
-    @Test("prompt はローマ字を前段でひらがな化して INPUT に入れる")
-    func promptNormalizesRomaji() {
-        let prompt = PromptBuilder.prompt(sourceText: "kyou ha ame", settings: .default)
-        #expect(prompt == "[INPUT]\nきょう は あめ")
+    @Test("空白のみの保護語だけなら PROTECTED_TERMS セクションを出さない")
+    func whitespaceOnlyProtectedTerms() {
+        var settings = ConversionSettings.default
+        settings.protectedTerms = [" ", "\t"]
+        let instructions = PromptBuilder.instructions(settings: settings)
+        #expect(!instructions.contains("[PROTECTED_TERMS]"))
     }
 
-    @Test("prompt は英単語・パス・固有名詞を破壊しない")
-    func promptPreservesNonRomaji() {
-        let prompt = PromptBuilder.prompt(
-            sourceText: "Claude Code de scripts/foo.sh wo naosu",
-            settings: .default
+    @Test("prompt は INPUT セクションにモデル入力をそのまま載せる")
+    func promptWrapsModelInput() {
+        #expect(PromptBuilder.prompt(modelInput: "きょう は あめ") == "[INPUT]\nきょう は あめ")
+    }
+}
+
+@Suite("ConversionRequest のモデル入力")
+struct ConversionRequestModelInputTests {
+    private func makeRequest(
+        _ text: String,
+        settings: ConversionSettings = .default
+    ) -> ConversionRequest {
+        ConversionRequest(
+            id: ConversionRequestID(),
+            compositionID: CompositionID(),
+            revision: 1,
+            sourceText: text,
+            settings: settings
         )
-        #expect(prompt == "[INPUT]\nClaude Code で scripts/foo.sh を なおす")
     }
 
-    @Test("小文字の保護語はかな化されず原文のまま INPUT に残る")
-    func promptKeepsLowercaseProtectedTerms() {
+    @Test("modelInputText はローマ字を前段でひらがな化し、sourceText は元のまま")
+    func modelInputTextNormalizesRomaji() {
+        let request = makeRequest("kyou ha ame")
+        #expect(request.modelInputText == "きょう は あめ")
+        #expect(request.sourceText == "kyou ha ame")
+    }
+
+    @Test("modelInputText は英単語・パス・固有名詞を破壊しない")
+    func modelInputTextPreservesNonRomaji() {
+        let request = makeRequest("Claude Code de scripts/foo.sh wo naosu")
+        #expect(request.modelInputText == "Claude Code で scripts/foo.sh を なおす")
+    }
+
+    @Test("小文字の保護語はかな化されず原文のまま残る")
+    func modelInputTextKeepsLowercaseProtectedTerms() {
         var settings = ConversionSettings.default
         settings.protectedTerms = ["tamago"]
-        let prompt = PromptBuilder.prompt(sourceText: "tamago wo tsukau", settings: settings)
-        #expect(prompt == "[INPUT]\ntamago を つかう")
+        let request = makeRequest("tamago wo tsukau", settings: settings)
+        #expect(request.modelInputText == "tamago を つかう")
     }
 }

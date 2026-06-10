@@ -15,8 +15,10 @@ actor ScriptedConversionProvider: TextConversionProvider {
     private var honorsCancellation = true
     private var pending: [PendingRequest] = []
     private(set) var cancellationCount = 0
-    private(set) var requestCount = 0
     private(set) var prewarmCount = 0
+    /// 受け取った変換要求の modelInputText（モデルへ渡るかな化済み入力）。
+    /// かな化がリクエスト経路を通っていることの観測に使う。
+    private(set) var receivedModelInputTexts: [String] = []
 
     func prewarm(settings: ConversionSettings) async {
         prewarmCount += 1
@@ -39,7 +41,7 @@ actor ScriptedConversionProvider: TextConversionProvider {
     }
 
     func convert(_ request: ConversionRequest) async throws -> ConversionResult {
-        requestCount += 1
+        receivedModelInputTexts.append(request.modelInputText)
         let text: String = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 pending.append(

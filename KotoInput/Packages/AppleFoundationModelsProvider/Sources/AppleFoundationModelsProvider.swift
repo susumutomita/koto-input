@@ -92,10 +92,9 @@ public actor AppleFoundationModelsProvider: TextConversionProvider {
             throw KotoError.modelUnavailable("macOS 26 以降が必要です。")
         }
         let instructions = PromptBuilder.instructions(settings: request.settings)
-        let prompt = PromptBuilder.prompt(
-            sourceText: request.sourceText,
-            settings: request.settings
-        )
+        // モデルへはかな化済み入力（modelInputText）を渡す。表示・Escape 復元・
+        // 出力検証は元の sourceText が基準のまま（ADR-0006）。
+        let prompt = PromptBuilder.prompt(modelInput: request.modelInputText)
         do {
             // prewarm 済みセッションがあれば 1 回だけ使う。無ければその場で作る。
             // どちらも使い捨てで、transcript を次の変換へ持ち越さない（ADR-0002）。

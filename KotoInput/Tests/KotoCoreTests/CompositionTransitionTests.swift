@@ -159,6 +159,17 @@ struct CompositionTransitionTests {
         #expect(outcome.state.selection == .cursor(at: "きょう は あめ".utf16.count))
     }
 
+    @Test("normalizeToKana は保護語をかな化から除外する")
+    func normalizeToKanaProtectsTerms() {
+        let before = compose("bun wo tukau")
+        let outcome = CompositionTransition.reduce(
+            before,
+            .normalizeToKana,
+            protectedTerms: ["bun"]
+        )
+        #expect(outcome.state.displayedText == "bun を つかう")
+    }
+
     @Test("converting 中の normalizeToKana は prefix が変わるため変換をキャンセルする")
     func normalizeToKanaDuringConversionCancels() {
         let before = converting("kyou")

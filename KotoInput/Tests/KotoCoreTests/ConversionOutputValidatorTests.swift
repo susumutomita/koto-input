@@ -119,4 +119,32 @@ struct ConversionOutputValidatorTests {
         )
         #expect(result == .success("Claude Code を直します。"))
     }
+
+    @Test("空白のみの保護語は無視され、検証が恒常失敗しない")
+    func whitespaceOnlyProtectedTermIgnored() {
+        var settings = ConversionSettings.default
+        settings.protectedTerms = [" ", "\t", ""]
+        let result = ConversionOutputValidator.validate(
+            output: "今日は雨です。",
+            source: "kyou ha ame",
+            settings: settings
+        )
+        #expect(result == .success("今日は雨です。"))
+    }
+
+    @Test("前後空白付きの保護語も trim して喪失を検出する")
+    func paddedProtectedTermStillValidated() {
+        var settings = ConversionSettings.default
+        settings.protectedTerms = [" Claude Code "]
+        let result = ConversionOutputValidator.validate(
+            output: "クロードコードを直す",
+            source: "Claude Code wo naosu",
+            settings: settings
+        )
+        guard case .failure(.generationFailed(let message)) = result else {
+            Issue.record("trim 後の保護語の消失が検出されなかった: \(result)")
+            return
+        }
+        #expect(message.contains("Claude Code"))
+    }
 }
