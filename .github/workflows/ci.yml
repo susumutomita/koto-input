@@ -26,8 +26,8 @@ jobs:
           submodules: true
 
       - name: Setup Bun
-        # oven-sh/setup-bun v2.0.2
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        # oven-sh/setup-bun v2.2.0 (Node 24 対応)
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
 
       # Supply Chain Security: Setup safe-chain before dependency installation
       - name: Setup safe-chain
