@@ -96,6 +96,7 @@ defaults delete com.susumutomita.inputmethod.Koto conversionSettings
 - Apple Intelligence が無効な環境では変換できない。その場合も元テキストは保持される。
 - ターミナルごとの互換性検証の状況は [docs/terminal-compatibility.md](./docs/terminal-compatibility.md) を参照。
 - 変換中の表示は marked text の下線のみで、スピナーや通知は出ない。
+- ローマ字として最後まで解釈できる小文字の英単語（例: `sudo` → すど）はかな化される。`protectedTerms` への登録で防げる。
 
 ## 開発
 

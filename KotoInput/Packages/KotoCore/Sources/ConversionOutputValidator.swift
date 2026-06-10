@@ -30,7 +30,7 @@ public enum ConversionOutputValidator {
 
         // 元テキストに含まれる保護語は、出力にも原文どおり残っていなければならない。
         // 生成後の機械的な置換は文法を壊すため行わない。
-        for term in settings.protectedTerms where !term.isEmpty {
+        for term in settings.sanitizedProtectedTerms {
             if source.contains(term) && !trimmed.contains(term) {
                 return .failure(.generationFailed("保護語「\(term)」が変換結果から失われました。"))
             }

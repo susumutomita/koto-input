@@ -58,9 +58,7 @@ public enum PromptBuilder {
         }
         sections.append(style)
 
-        let terms = settings.protectedTerms
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let terms = settings.sanitizedProtectedTerms
         if !terms.isEmpty {
             sections.append(
                 "[PROTECTED_TERMS]\n" + terms.map { "- \($0)" }.joined(separator: "\n")
@@ -70,17 +68,11 @@ public enum PromptBuilder {
         return sections.joined(separator: "\n\n")
     }
 
-    /// モデルへ渡す前にローマ字を決定論的にひらがな化する（ADR-0006）。
-    /// モデルの仕事を得意な「かな漢字変換 + 整文」に絞り、ローマ字解釈の
-    /// 揺れを構造的に排除する。保護語はかな化から除外し、validator の
-    /// 「保護語は原文どおり出力に残る」検証と層を揃える。Escape 復元・
-    /// splice は引き続き打たれたままの sourceText を基準にする。
-    public static func prompt(sourceText: String, settings: ConversionSettings) -> String {
-        "[INPUT]\n"
-            + RomajiKanaConverter.normalize(
-                sourceText,
-                protecting: settings.protectedTerms
-            )
+    /// モデル入力（ConversionRequest.modelInputText）からユーザープロンプトを
+    /// 構築する。かな化は ConversionRequest 側で行い（ADR-0006）、検証・復元
+    /// 基準の sourceText と取り違えないようラベルで区別する。
+    public static func prompt(modelInput: String) -> String {
+        "[INPUT]\n" + modelInput
     }
 
     static func styleInstruction(_ style: WritingStyle) -> String {

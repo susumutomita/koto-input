@@ -27,9 +27,13 @@ public enum CompositionTransition {
         }
     }
 
+    /// `protectedTerms` は normalizeToKana が参照する環境値（サニタイズ済みの
+    /// 保護語）。設定の所有者（CompositionCoordinator）が注入することで、
+    /// reducer は純粋関数のまま AI 経路（modelInputText）と同じ保護を適用できる。
     public static func reduce(
         _ state: CompositionState,
         _ command: CompositionCommand,
+        protectedTerms: [String] = [],
         makeRequestID: () -> ConversionRequestID = { ConversionRequestID() }
     ) -> Outcome {
         if case .idle = state.phase {
@@ -54,9 +58,13 @@ public enum CompositionTransition {
             return requestConversion(state, makeRequestID: makeRequestID)
         case .normalizeToKana:
             // 決定論ひらがな化は編集として扱う。変換中なら prefix が変わるため
-            // 既存のタイプ先行ルールに従ってキャンセルされる。
+            // 既存のタイプ先行ルールに従ってキャンセルされる。保護語は AI 経路と
+            // 同じく原文のまま残す。
             return applyEdit(state) { current in
-                let kana = RomajiKanaConverter.normalize(current.displayedText)
+                let kana = RomajiKanaConverter.normalize(
+                    current.displayedText,
+                    protecting: protectedTerms
+                )
                 return (kana, .cursor(at: kana.utf16.count))
             }
         case .conversionSucceeded(let result):
