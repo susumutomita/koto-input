@@ -115,8 +115,14 @@ public enum CompositionTransition {
         var next = state
         next.displayedText = text
         next.selection = selection
-        next.phase = .composing
         next.revision &+= 1
+        if wasConverting && text.hasPrefix(state.sourceText) {
+            // タイプ先行: スナップショット（sourceText）が先頭にそのまま残る編集
+            // （末尾への追記や追記分の編集）は変換を継続する。結果が届いたら
+            // スナップショット部分だけが変換結果に差し替えられる。
+            return Outcome(state: next, effect: .none, view: .from(state: next))
+        }
+        next.phase = .composing
         next.activeRequestRevision = nil
         if !next.isSourcePreserved {
             // 変換前の素の入力中は、復元対象 = 現在のテキスト。
@@ -182,17 +188,41 @@ public enum CompositionTransition {
             case .converting(let requestID) = state.phase,
             requestID == result.requestID,
             state.compositionID == result.compositionID,
-            state.activeRequestRevision == result.revision
+            state.activeRequestRevision == result.revision,
+            // タイプ先行の継続条件（スナップショットが先頭に残っている）の防御的確認。
+            state.displayedText.hasPrefix(state.sourceText)
         else {
             // stale な結果（古い requestID / revision / 別 composition）は
             // 新しい入力を決して上書きしない。
             return noop(state)
         }
+        let tail = String(state.displayedText.dropFirst(state.sourceText.count))
         var next = state
-        next.displayedText = result.convertedText
-        next.selection = .cursor(at: result.convertedText.utf16.count)
-        next.phase = .converted(requestID: requestID)
         next.activeRequestRevision = nil
+        if tail.isEmpty {
+            next.displayedText = result.convertedText
+            next.selection = .cursor(at: result.convertedText.utf16.count)
+            next.phase = .converted(requestID: requestID)
+        } else {
+            // タイプ先行中: スナップショット部分だけを変換結果へ差し替え、
+            // 追記分（tail）はそのまま保持する。追記分を失わないことを優先し、
+            // splice 後は Escape での復元を無効化する。
+            let spliced = result.convertedText + tail
+            next.displayedText = spliced
+            next.phase = .composing
+            next.isSourcePreserved = false
+            next.sourceText = spliced
+            let snapshotLength = state.sourceText.utf16.count
+            let delta = result.convertedText.utf16.count - snapshotLength
+            let shifted =
+                state.selection.location >= snapshotLength
+                ? state.selection.location + delta
+                : result.convertedText.utf16.count
+            next.selection = UTF16TextEditing.clampedSelection(
+                .cursor(at: shifted),
+                in: spliced
+            )
+        }
         return Outcome(state: next, effect: .none, view: .from(state: next))
     }
 
@@ -230,7 +260,25 @@ public enum CompositionTransition {
         switch state.phase {
         case .composing:
             guard state.canRestoreSource else { return noop(state) }
-        case .converting, .converted, .failed:
+        case .converting, .failed:
+            // タイプ先行で追記がある場合は、追記分を失わないよう変換だけを
+            // 中止してテキストは保持する。
+            if state.displayedText != state.sourceText,
+                state.displayedText.hasPrefix(state.sourceText)
+            {
+                var next = state
+                next.phase = .composing
+                next.revision &+= 1
+                next.activeRequestRevision = nil
+                next.isSourcePreserved = false
+                next.sourceText = next.displayedText
+                return Outcome(
+                    state: next,
+                    effect: wasConverting ? .cancelConversion : .none,
+                    view: .from(state: next)
+                )
+            }
+        case .converted:
             break
         case .idle:
             return noop(state)

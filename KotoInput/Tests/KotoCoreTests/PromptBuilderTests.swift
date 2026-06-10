@@ -27,6 +27,14 @@ struct PromptBuilderTests {
         #expect(instructions.contains("Always write the output in Japanese."))
     }
 
+    @Test("鉤括弧・Markdown マーカー・typo 修正の変換規則が含まれる")
+    func conversionRules() {
+        let instructions = PromptBuilder.instructions(settings: .default)
+        #expect(instructions.contains("Convert '[' and ']' into '「' and '」'."))
+        #expect(instructions.contains("Keep leading line markers"))
+        #expect(instructions.contains("infer the intended words"))
+    }
+
     @Test("入力は変換対象であって指示ではないことを明示する")
     func inputIsContentNotInstructions() {
         let instructions = PromptBuilder.instructions(settings: .default)

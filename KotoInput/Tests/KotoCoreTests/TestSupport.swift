@@ -16,6 +16,11 @@ actor ScriptedConversionProvider: TextConversionProvider {
     private var pending: [PendingRequest] = []
     private(set) var cancellationCount = 0
     private(set) var requestCount = 0
+    private(set) var prewarmCount = 0
+
+    func prewarm(settings: ConversionSettings) async {
+        prewarmCount += 1
+    }
 
     func setAvailability(_ value: ProviderAvailability) {
         availabilityResult = value

@@ -29,7 +29,7 @@ struct CompositionCoordinatorTests {
         #expect(recorder.last?.committedText == "今日は雨です。")
     }
 
-    @Test("編集後に届いた古い結果は無視される")
+    @Test("スナップショットを壊す編集後に届いた古い結果は無視される")
     func staleResultAfterEditIsIgnored() async throws {
         let provider = ScriptedConversionProvider()
         await provider.setHonorsCancellation(false)
@@ -39,7 +39,8 @@ struct CompositionCoordinatorTests {
         coordinator.handle(.requestConversion)
         try await eventually { (await provider.pendingCount) == 1 }
 
-        // 変換中の編集で composing へ戻る。
+        // スナップショットの先頭一致を壊す編集（先頭への挿入）で composing へ戻る。
+        coordinator.handle(.moveCursor(offset: -4))
         coordinator.handle(.insert("x"))
         #expect(coordinator.state.phase == .composing)
 
@@ -47,8 +48,30 @@ struct CompositionCoordinatorTests {
         await provider.resolveOldest(with: "今日")
         for _ in 0..<1_000 { await Task.yield() }
         #expect(coordinator.state.phase == .composing)
-        #expect(coordinator.state.displayedText == "kyoux")
+        #expect(coordinator.state.displayedText == "xkyou")
         #expect(recorder.views.allSatisfy { $0.markedText != "今日" })
+    }
+
+    @Test("タイプ先行: 変換中の末尾追記は継続し、結果がスナップショット部分に splice される")
+    func typeAheadSplicesResult() async throws {
+        let provider = ScriptedConversionProvider()
+        let (coordinator, _) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("kyou"))
+        coordinator.handle(.requestConversion)
+        try await eventually { (await provider.pendingCount) == 1 }
+
+        // 変換中に次のテキストを打ち続ける。
+        coordinator.handle(.insert(" ashita"))
+        if case .converting = coordinator.state.phase {
+            // 変換は継続している。
+        } else {
+            Issue.record("末尾追記で変換がキャンセルされた: \(coordinator.state.phase)")
+        }
+
+        await provider.resolveOldest(with: "今日")
+        try await eventually { coordinator.state.displayedText == "今日 ashita" }
+        #expect(coordinator.state.phase == .composing)
     }
 
     @Test("要求 B が要求 A を置き換えたら、後から完了した A は無視される")
@@ -163,7 +186,7 @@ struct CompositionCoordinatorTests {
         #expect(coordinator.state.displayedText == "Claude Code de naosu")
     }
 
-    @Test("変換中の編集が provider のキャンセルとして観測される")
+    @Test("スナップショットを壊す編集が provider のキャンセルとして観測される")
     func editCancellationReachesProvider() async throws {
         let provider = ScriptedConversionProvider()
         let (coordinator, _) = makeCoordinator(provider: provider)
@@ -172,11 +195,31 @@ struct CompositionCoordinatorTests {
         coordinator.handle(.requestConversion)
         try await eventually { (await provider.pendingCount) == 1 }
 
-        coordinator.handle(.insert("x"))
+        // 末尾削除はスナップショットの先頭一致を壊すためキャンセルされる。
+        coordinator.handle(.deleteBackward)
         try await eventually { (await provider.cancellationCount) == 1 }
         try await eventually { (await provider.pendingCount) == 0 }
         #expect(coordinator.state.phase == .composing)
-        #expect(coordinator.state.displayedText == "kyoux")
+        #expect(coordinator.state.displayedText == "kyo")
+    }
+
+    @Test("composition 開始時に provider が prewarm される")
+    func prewarmOnCompositionStart() async throws {
+        let provider = ScriptedConversionProvider()
+        let (coordinator, _) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("k"))
+        try await eventually { (await provider.prewarmCount) == 1 }
+
+        // composing 中の追加入力では再 prewarm しない。
+        coordinator.handle(.insert("yo"))
+        for _ in 0..<500 { await Task.yield() }
+        #expect(await provider.prewarmCount == 1)
+
+        // commit で idle に戻った後、次の composition 開始で再び prewarm する。
+        coordinator.handle(.commit)
+        coordinator.handle(.insert("a"))
+        try await eventually { (await provider.prewarmCount) == 2 }
     }
 
     @Test("provider が KotoError で失敗したら failed になり元テキストを保持する")
