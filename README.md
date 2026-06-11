@@ -28,6 +28,8 @@ This authentication design has ambiguous responsibility boundaries, so checking 
 
 ターミナルで Claude Code や Codex CLI に指示を書くとき、従来の日本語 IME には不便が多い。スペースで変換候補が割り込み、Enter の確定がそのままプロンプト送信になり、技術用語やコマンド名が勝手にかな漢字へ変換される。Koto は変換・確定・送信を分離し、AI への指示を書く流れを壊さないことを最優先に設計した入力メソッド。変換は明示的なキー（`Shift + Space` など）を押したときだけ起き、`Claude Code` のような保護語やコマンド名は原文のまま残る。
 
+Koto が目指すのは「IME を切り替えない」体験。日本語にする・英語で送る・別の言語へ訳す — これらはすべて「打ったテキストをどの形にするか」の選択であって、入力ソースの切替を要求すべきではない。Koto はその選択をキー 1 つで行える単一の入力レイヤーとして設計している。
+
 ## 特徴
 
 - 変換はデバイス上で完結し、入力テキストを外部サービスへ送信しない。変換エンジンは Apple のオンデバイスモデルのみで、OpenAI / Codex 等の外部 AI は使わない。
@@ -81,13 +83,14 @@ brew install --cask ./Casks/koto.rb
 | `Ctrl + Shift + G` | ドイツ語へ AI 変換する |
 | `Ctrl + Shift + S` | スペイン語へ AI 変換する |
 | `Tab` | ローマ字をその場でひらがなに変換する（AI 不要・即時） |
+| `↑` / `↓` | 変換後に、これまでに生成した候補（日本語・各言語）を切り替える |
 | `Escape` | 変換のキャンセル、または変換前テキストの復元 |
 | `Enter` | composition の確定（送信はしない） |
 | `Control + Enter` | composition 内に改行を挿入する |
 
 Enter は確定だけを行う。Claude Code / Codex へプロンプトを送信するのは、確定後にもう一度押す Enter。
 
-変換結果が気に入らない場合、編集せずにもう一度同じ変換キーを押すと別候補を再抽選する（初回は決定的、2 回目以降は揺らぎあり）。変換後に別の言語キーを押せばその言語へ変換し直し、`Shift + Space` で日本語へ戻せる。`Escape` を押せば何回再変換した後でも元のローマ字へ戻る。
+変換結果が気に入らない場合、編集せずにもう一度同じ変換キーを押すと別候補を再抽選する（初回は決定的、2 回目以降は揺らぎあり）。変換後に別の言語キーを押せばその言語へ変換し直し、`Shift + Space` で日本語へ戻せる。再抽選・言語切替で生成した候補は捨てられず、`↑` / `↓` で見比べて選び直せる。`Escape` を押せば何回再変換した後でも元のローマ字へ戻る。`↑` / `↓` は候補が 2 件以上あるときだけ Koto が消費し、それ以外はアプリへ通す。
 
 言語キーは入力中（composition がある間）だけ Koto が消費する。composition が無いときはアプリへそのまま通すため、ターミナルのショートカットを奪わない。ただし VS Code 統合ターミナル等では入力中でもアプリ側が `Ctrl + Shift + E`（エクスプローラー）などを先取りする場合がある。その場合はアプリ側のキーバインド変更で回避する（既知の衝突は `docs/terminal-compatibility.md` を参照）。
 
@@ -110,6 +113,8 @@ defaults delete com.susumutomita.inputmethod.Koto conversionSettings
 | `protectedTerms` | 出力に原文どおり残す語の配列（翻訳にも適用） |
 | `maximumExpansionRatio` | 出力長の上限倍率（デフォルト 4.0） |
 | `outputProfile` | `neutral` / `polite` / `business` / `casual` / `technical`（翻訳のトーン。日本語変換には適用しない） |
+| `outputPreset` | `standard` / `chat` / `email` / `codeReview` / `agentPrompt`（用途別のトーンと指示の束。`appAwarePresetsEnabled` が true のときだけ有効） |
+| `appAwarePresetsEnabled` | プリセット適用の総スイッチ（デフォルト false。false なら `outputProfile` をそのまま使う） |
 
 ## プライバシー
 
@@ -120,7 +125,7 @@ defaults delete com.susumutomita.inputmethod.Koto conversionSettings
 ## 既知の制限
 
 - Apple Intelligence が無効な環境では変換できない。その場合も元テキストは保持される。
-- 翻訳の初回変換は日本語より待ち時間が長い場合がある（prewarm は日本語のみ）。
+- 翻訳の初回変換は日本語より待ち時間が長い場合がある（prewarm は日本語のみ）。速度を出している設計は [docs/performance.md](./docs/performance.md) を参照。
 - ターミナルごとの互換性検証の状況は [docs/terminal-compatibility.md](./docs/terminal-compatibility.md) を参照。
 - 変換中の表示は marked text の下線のみで、スピナーや通知は出ない。
 - ローマ字として最後まで解釈できる小文字の英単語（例: `sudo` → すど）はかな化される。`protectedTerms` への登録で防げる。

@@ -498,3 +498,33 @@ CI green。タグ再 push 後の release ジョブが assets（Koto-v1.0.0.zip +
 #### 進捗ログ
 
 - 2026-06-11: ローカルで再現しなかった理由は、ローカルは `--install` 分岐（line 55 を通らない）だったため。echo は ad-hoc 署名完了後なので成果物自体は壊れていなかった。
+
+### 候補巡回・出力プリセット・性能知見・release 手動トリガー（Issue 34・37 ほか） - 2026-06-11
+
+#### 目的
+
+Issue 34（候補表示）と Issue 37（出力プリセット）の実装、デモへの「AI が速い」コメントを受けた性能設計の知見化、release のタグ push 不可環境向け手動トリガー、README へのビジョン明文化をまとめて出荷する。
+
+#### 制約
+
+- 候補 UI は marked text 内巡回（ユーザー承認。IMKCandidates は実機検証不可のため見送り = ADR-0012）。
+- プリセットはアプリ検出なしの opt-in 基盤のみ（Issue 37 の制約 = ADR-0011）。
+- 単一ブランチ運用のため 1 PR に同乗（コミットで分離）。
+
+#### タスク
+
+- [x] Issue 34: ConversionCandidate・候補蓄積/クリア規則・selectCandidate（wrap 巡回）・↑/↓ ルーティング・ADR-0012・テスト 17 件
+- [x] Issue 37: OutputPreset（5 種・製品名非依存）・appAwarePresetsEnabled・effectiveProfile 優先規則・[STYLE] への束反映・ADR-0011・テスト 22 件
+- [x] docs/performance.md（レイテンシ収支と 8 つの工夫）+ README / architecture.md リンク
+- [x] release.yml に workflow_dispatch（タグ入力）を追加（タグ push 不可環境からの v1.0.1 再実行用）
+- [x] README: ビジョン（IME を切り替えない体験）・↑/↓ キー・プリセット設定表
+- [x] かな形態巡回の仕様書 + Issue 41 作成（実装は次 PR）
+- [ ] ゲート → push → PR → CI green → マージ → workflow_dispatch で v1.0.1 release → Issue 34・37 クローズ
+
+#### 検証手順
+
+CI の swift ジョブで新規テスト 39 件を含む全件 pass。release は workflow_dispatch 実行で assets 添付まで完走を確認。
+
+#### 進捗ログ
+
+- 2026-06-11: 並行 2 エージェント（Issue 34 / 37）の編集ファイルを排他に分割して衝突ゼロで統合。candidate のメタデータは reducer の純粋性維持のため text / target / attempt とし、profile は持たせない判断（ADR-0012 に記録）。Mozc 検討を F-SW4978 に記録。

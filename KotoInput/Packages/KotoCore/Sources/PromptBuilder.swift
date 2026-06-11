@@ -162,9 +162,15 @@ public enum PromptBuilder {
             """
         )
 
-        sections.append(
-            "[STYLE]\n" + outputProfileInstruction(settings.outputProfile)
-        )
+        // プリセット（ADR-0011）は [STYLE] セクションに閉じて作用する。
+        // 実効プロファイル（プリセット適用時はプリセットの束、それ以外は
+        // outputProfile）で基調を決め、プリセット固有の追加指示があれば
+        // 1 行追記する。REQUIREMENTS・PROTECTED_TERMS には影響しない。
+        var style = "[STYLE]\n" + outputProfileInstruction(settings.effectiveProfile)
+        if let presetInstruction = settings.effectivePreset.presetInstruction {
+            style += "\n" + presetInstruction
+        }
+        sections.append(style)
 
         let terms = settings.sanitizedProtectedTerms
         if !terms.isEmpty {

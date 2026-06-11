@@ -69,12 +69,15 @@ idle → composing → converting → converted → (commit) → idle
 - 変換結果は `compositionID` / `requestID` / `revision` の 3 つが現在状態と一致するときだけ適用する。古い結果が新しい入力を上書きすることはない。
 - 変換要求は `ConversionTarget` を持つ。`Shift + Space` は日本語、`Ctrl + Shift + 言語キー`（E/C/K/F/G/S）は翻訳ターゲットを指定する（ADR-0009）。言語キーはキーコードではなく文字で判定し、composition が無いときは消費しない。
 - 再変換（ADR-0008）: converted から編集せずに再要求されると、原文スナップショットから変換し直す。同じ target なら attempt + 1 の再抽選（温度付き）、別の target なら attempt 0 でその言語へ変換し直す。Escape の復元先は常に原文。
+- 候補巡回（ADR-0012）: 検証を通過した変換結果は同一スナップショットの候補として蓄積され、converted 中の ↑/↓ で marked text 内を巡回選択できる（日本語と各言語の候補が共存）。候補はスナップショットを壊す編集・commit・cancel・restoreSource でクリアされる。候補ウィンドウ（IMKCandidates）は実機検証の不確実性とターミナル相性から見送った。
 - タイプ先行（ADR-0005）: 変換中でも、スナップショットが先頭に残る末尾追記は変換を継続する。結果はスナップショット部分だけに splice され、追記分は保持される。スナップショットを壊す編集は従来どおりキャンセルする。
 - Tab は `RomajiKanaConverter` によるその場ひらがな化（AI 不要・即時、ADR-0006）。編集として扱われ、変換中なら既存のタイプ先行ルールに従う。保護語は AI 経路と同じ規則で除外される（ADR-0007）。
 - Escape の解釈は状態に依存する。変換中・変換後・失敗時は `restoreSource`（元テキスト復元）、素の入力中は `cancel`（composition 破棄）。タイプ先行の追記がある場合はテキストを保持して変換だけを中止する。
 - 入力ソース切替やフォーカス移動（`deactivate`）では、表示中テキストが空でなければ commit、空なら cancel する。タイプ済みテキストを消失させない。
 
 ## 変換の並行性
+
+レイテンシ設計の知見（prewarm・タイプ先行・最小プロンプト等がなぜ速さに効くのか）は [docs/performance.md](./performance.md) を参照。
 
 - `CompositionCoordinator` は @MainActor。変換タスクは常に 1 本で、新しい要求・commit・cancel・deactivate、およびスナップショットを壊す編集が走ると既存タスクを cancel する。
 - provider の cancellation はベストエフォート。stale 判定（上記 3 条件 + prefix 一致）は cancellation が成功しても必ず行う。
@@ -85,7 +88,7 @@ idle → composing → converting → converted → (commit) → idle
 ## プロンプトと出力検証
 
 - プロンプトは `[ROLE]` `[REQUIREMENTS]` `[EXAMPLE]` `[STYLE]` `[PROTECTED_TERMS]` を instructions に、`[INPUT]` をユーザープロンプトに分けて構築する（`PromptBuilder`）。入力テキストは「変換対象のコンテンツ」であり指示ではない、と instructions 側で明示する。
-- instructions は `ConversionTarget` ごとに分けて構築する（ADR-0009）。日本語は整文と文体設定（`style` / `customInstruction`）を含む変換 instructions、翻訳は忠実な訳・保護語/識別子の verbatim 維持・忠実な few-shot 1 例で構成する。few-shot に言い換えの例を入れない（小型モデルが意味置換を学習するため。Issue 22）。文体設定とカスタム指示は翻訳には適用しない。翻訳のトーンは `OutputProfile`（neutral / polite / business / casual / technical）を `[STYLE]` へ写像する（ADR-0010）。
+- instructions は `ConversionTarget` ごとに分けて構築する（ADR-0009）。日本語は整文と文体設定（`style` / `customInstruction`）を含む変換 instructions、翻訳は忠実な訳・保護語/識別子の verbatim 維持・忠実な few-shot 1 例で構成する。few-shot に言い換えの例を入れない（小型モデルが意味置換を学習するため。Issue 22）。文体設定とカスタム指示は翻訳には適用しない。翻訳のトーンは `OutputProfile`（neutral / polite / business / casual / technical）を `[STYLE]` へ写像する（ADR-0010）。用途別の `OutputPreset`（standard / chat / email / codeReview / agentPrompt）はプロファイルと抑制系の追加指示の明示的な束で、`appAwarePresetsEnabled` による opt-in のときだけ実効になる（ADR-0011）。
 - アラビア語はキー割当の無い表現可能ターゲット（ADR-0010）。実行時にモデルが対象言語へ対応しない場合は `modelUnavailable` で fail-safe（原文保持）する。翻訳品質はゴールデン一致ではなく品質フィクスチャ（`KotoInput/Tests/KotoCoreTests/Fixtures/`、Issue 36）の機械検証契約（保護語の残存・無断の断定の不在）で評価する。
 - [INPUT] は `RomajiKanaConverter` で決定論的にかな正規化してから渡す（ADR-0006）。モデルの仕事はかな漢字変換・翻訳と整文に絞られ、ローマ字解釈の揺れが構造的に消える。かな正規化は全 target 共通で、同じ変換器を Tab キー（その場ひらがな化）でも使う。保護語は語境界照合で正規化から除外する（ADR-0007）。
 - プロンプトはセキュリティ境界ではないため、出力は `ConversionOutputValidator` で決定論的に検証する。

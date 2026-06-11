@@ -483,4 +483,64 @@ struct CompositionCoordinatorTests {
         }
         #expect(coordinator.state.displayedText == "「Today」")
     }
+
+    // MARK: - 変換候補の巡回選択
+
+    @Test("再抽選後の selectCandidate(-1) で 1 件目の候補表示へ戻り、commit が選択候補を確定する")
+    func cycleBackToFirstCandidateAfterReroll() async throws {
+        let provider = ScriptedConversionProvider()
+        let (coordinator, recorder) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("kyou"))
+        coordinator.handle(.requestConversion(.japanese))
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "今日")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+        // 候補が 1 件の間は巡回できない（上下キーはアプリへ通す）。
+        #expect(!coordinator.state.canCycleCandidates)
+
+        // 再抽選で 2 件目の候補が蓄積される。
+        coordinator.handle(.requestConversion(.japanese))
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "京")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "京")
+        #expect(coordinator.state.canCycleCandidates)
+
+        // 上矢印相当の selectCandidate(-1) で 1 件目の表示へ戻る。
+        coordinator.handle(.selectCandidate(offset: -1))
+        #expect(coordinator.state.displayedText == "今日")
+        #expect(recorder.last?.markedText == "今日")
+
+        // Enter は選択中の候補を確定するだけで、自動 commit は無い。
+        coordinator.handle(.commit)
+        #expect(coordinator.state.phase == .idle)
+        #expect(recorder.last?.shouldCommit == true)
+        #expect(recorder.last?.committedText == "今日")
+    }
+
+    @Test("stale な結果は候補に入らない")
+    func staleResultDoesNotBecomeCandidate() async throws {
+        let provider = ScriptedConversionProvider()
+        await provider.setHonorsCancellation(false)
+        let (coordinator, _) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("kyou"))
+        coordinator.handle(.requestConversion(.japanese))
+        try await eventually { (await provider.pendingCount) == 1 }
+
+        // スナップショットを壊す編集で composing へ戻ってから古い結果が届く。
+        coordinator.handle(.deleteBackward)
+        #expect(coordinator.state.phase == .composing)
+        await provider.resolveOldest(with: "今日")
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(coordinator.state.candidates.isEmpty)
+        #expect(coordinator.state.selectedCandidateIndex == nil)
+    }
 }

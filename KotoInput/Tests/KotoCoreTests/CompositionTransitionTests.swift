@@ -35,6 +35,28 @@ struct CompositionTransitionTests {
         return CompositionTransition.reduce(before, .conversionSucceeded(result)).state
     }
 
+    /// converted 状態から編集せずに再要求（同 target 再抽選 / 別 target 切替）
+    /// して成功させ、次の converted 状態を返す。
+    private func reroll(
+        _ state: CompositionState,
+        target: ConversionTarget,
+        convertedText: String
+    ) -> CompositionState {
+        let requestID = ConversionRequestID()
+        let retrying = CompositionTransition.reduce(
+            state,
+            .requestConversion(target),
+            makeRequestID: { requestID }
+        ).state
+        let result = ConversionResult(
+            requestID: requestID,
+            compositionID: retrying.compositionID,
+            revision: retrying.activeRequestRevision ?? 0,
+            convertedText: convertedText
+        )
+        return CompositionTransition.reduce(retrying, .conversionSucceeded(result)).state
+    }
+
     // MARK: - 開始と編集
 
     @Test("idle で文字を挿入すると composing になり marked text を描画する")
@@ -658,5 +680,211 @@ struct CompositionTransitionTests {
         let before = compose("kyou")
         let after = CompositionTransition.reduce(before, .commit).state
         #expect(after.compositionID != before.compositionID)
+    }
+
+    // MARK: - 変換候補の蓄積と巡回選択
+
+    @Test("変換成功で検証通過済みの結果が候補として 1 件蓄積される")
+    func conversionSuccessAccumulatesCandidate() {
+        let state = converted(source: "kyou", convertedText: "今日")
+        #expect(
+            state.candidates == [
+                ConversionCandidate(text: "今日", target: .japanese, attempt: 0)
+            ]
+        )
+        #expect(state.selectedCandidateIndex == 0)
+        // 候補 1 件では巡回の意味が無い（上下キーはアプリへ通す）。
+        #expect(!state.canCycleCandidates)
+    }
+
+    @Test("再抽選の成功で 2 件目の候補が追加され選択が新候補へ移る")
+    func rerollAppendsSecondCandidate() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let second = reroll(first, target: .japanese, convertedText: "京")
+        #expect(
+            second.candidates == [
+                ConversionCandidate(text: "今日", target: .japanese, attempt: 0),
+                ConversionCandidate(text: "京", target: .japanese, attempt: 1),
+            ]
+        )
+        #expect(second.selectedCandidateIndex == 1)
+        #expect(second.displayedText == "京")
+        #expect(second.canCycleCandidates)
+    }
+
+    @Test("再抽選が同一の結果を返したら重複追加せず既存候補を選択する")
+    func duplicateResultIsNotAppended() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let second = reroll(first, target: .japanese, convertedText: "今日")
+        #expect(
+            second.candidates == [
+                ConversionCandidate(text: "今日", target: .japanese, attempt: 0)
+            ]
+        )
+        #expect(second.selectedCandidateIndex == 0)
+        #expect(second.displayedText == "今日")
+        if case .converted = second.phase {
+            // 重複でも converted へ遷移する。
+        } else {
+            Issue.record("converted へ遷移しなかった: \(second.phase)")
+        }
+    }
+
+    @Test("別 target の変換で日本語と英語の候補が共存する")
+    func differentTargetCandidatesCoexist() {
+        let japanese = converted(source: "kyou", convertedText: "今日")
+        let english = reroll(japanese, target: .english, convertedText: "Today")
+        #expect(
+            english.candidates == [
+                ConversionCandidate(text: "今日", target: .japanese, attempt: 0),
+                ConversionCandidate(text: "Today", target: .english, attempt: 0),
+            ]
+        )
+        #expect(english.selectedCandidateIndex == 1)
+        #expect(english.canCycleCandidates)
+    }
+
+    @Test("selectCandidate で表示候補が切り替わり端では wrap around する")
+    func selectCandidateCyclesWithWrapAround() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let second = reroll(first, target: .japanese, convertedText: "京")
+        // +1 は末尾から先頭へ wrap する。
+        let wrapped = CompositionTransition.reduce(second, .selectCandidate(offset: 1))
+        #expect(wrapped.state.selectedCandidateIndex == 0)
+        #expect(wrapped.state.displayedText == "今日")
+        #expect(wrapped.state.selection == .cursor(at: "今日".utf16.count))
+        #expect(wrapped.state.revision == second.revision + 1)
+        #expect(wrapped.view.markedText == "今日")
+        #expect(wrapped.effect == .none)
+        // 候補の巡回は原文スナップショットと候補列を変更しない。
+        #expect(wrapped.state.sourceText == "kyou")
+        #expect(wrapped.state.isSourcePreserved)
+        #expect(wrapped.state.candidates == second.candidates)
+        #expect(wrapped.state.phase == second.phase)
+        // -1 は先頭から末尾へ wrap する。
+        let back = CompositionTransition.reduce(wrapped.state, .selectCandidate(offset: -1))
+        #expect(back.state.selectedCandidateIndex == 1)
+        #expect(back.state.displayedText == "京")
+    }
+
+    @Test("idle や composing の selectCandidate は何も起こさない")
+    func selectCandidateOutsideConvertedIsNoop() {
+        let idle = CompositionTransition.reduce(.idle(), .selectCandidate(offset: 1))
+        #expect(idle.state.phase == .idle)
+        #expect(idle.effect == .none)
+        let composing = compose("kyou")
+        let outcome = CompositionTransition.reduce(composing, .selectCandidate(offset: 1))
+        #expect(outcome.state == composing)
+        #expect(outcome.effect == .none)
+    }
+
+    @Test("候補が 1 件だけの converted では selectCandidate は何も起こさない")
+    func selectCandidateWithSingleCandidateIsNoop() {
+        let state = converted(source: "kyou", convertedText: "今日")
+        let outcome = CompositionTransition.reduce(state, .selectCandidate(offset: 1))
+        #expect(outcome.state == state)
+        #expect(outcome.effect == .none)
+    }
+
+    @Test("スナップショットを壊す編集で候補がクリアされる")
+    func editClearsCandidates() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let second = reroll(first, target: .japanese, convertedText: "京")
+        let edited = CompositionTransition.reduce(second, .insert("x")).state
+        #expect(edited.candidates.isEmpty)
+        #expect(edited.selectedCandidateIndex == nil)
+    }
+
+    @Test("cancel で候補がクリアされる")
+    func cancelClearsCandidates() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let second = reroll(first, target: .japanese, convertedText: "京")
+        let outcome = CompositionTransition.reduce(second, .cancel)
+        #expect(outcome.state.candidates.isEmpty)
+        #expect(outcome.state.selectedCandidateIndex == nil)
+    }
+
+    @Test("commit で候補がクリアされ次の composition は空の候補から始まる")
+    func commitClearsCandidates() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let second = reroll(first, target: .japanese, convertedText: "京")
+        let committed = CompositionTransition.reduce(second, .commit).state
+        #expect(committed.candidates.isEmpty)
+        #expect(committed.selectedCandidateIndex == nil)
+        let next = CompositionTransition.reduce(committed, .insert("a")).state
+        #expect(next.candidates.isEmpty)
+    }
+
+    @Test("deactivate で候補がクリアされる")
+    func deactivateClearsCandidates() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let second = reroll(first, target: .japanese, convertedText: "京")
+        let outcome = CompositionTransition.reduce(second, .deactivate)
+        #expect(outcome.state.candidates.isEmpty)
+        #expect(outcome.state.selectedCandidateIndex == nil)
+    }
+
+    @Test("restoreSource で候補がクリアされ原文へ戻る")
+    func restoreSourceClearsCandidates() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let second = reroll(first, target: .japanese, convertedText: "京")
+        let outcome = CompositionTransition.reduce(second, .restoreSource)
+        #expect(outcome.state.displayedText == "kyou")
+        #expect(outcome.state.candidates.isEmpty)
+        #expect(outcome.state.selectedCandidateIndex == nil)
+    }
+
+    @Test("selectCandidate 後も Escape で原文へ復元される")
+    func escapeAfterSelectCandidateRestoresSource() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let second = reroll(first, target: .japanese, convertedText: "京")
+        let switched = CompositionTransition.reduce(
+            second,
+            .selectCandidate(offset: 1)
+        ).state
+        #expect(switched.displayedText == "今日")
+        let outcome = CompositionTransition.reduce(switched, .restoreSource)
+        #expect(outcome.state.phase == .composing)
+        #expect(outcome.state.displayedText == "kyou")
+        #expect(outcome.state.candidates.isEmpty)
+    }
+
+    @Test("selectCandidate 後の commit は選択中の候補を確定する")
+    func commitAfterSelectCandidateCommitsSelected() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let second = reroll(first, target: .japanese, convertedText: "京")
+        let switched = CompositionTransition.reduce(
+            second,
+            .selectCandidate(offset: 1)
+        ).state
+        let outcome = CompositionTransition.reduce(switched, .commit)
+        #expect(outcome.view.shouldCommit)
+        #expect(outcome.view.committedText == "今日")
+        #expect(outcome.state.phase == .idle)
+        #expect(outcome.state.candidates.isEmpty)
+    }
+
+    @Test("タイプ先行の splice ではスナップショットが変わるため候補がクリアされる")
+    func spliceClearsCandidates() {
+        let first = converted(source: "kyou", convertedText: "今日")
+        let retryID = ConversionRequestID()
+        let retrying = CompositionTransition.reduce(
+            first,
+            .requestConversion(.japanese),
+            makeRequestID: { retryID }
+        ).state
+        // タイプ先行の継続中（スナップショットが先頭に残る追記）は候補を保持する。
+        let appended = CompositionTransition.reduce(retrying, .insert("x")).state
+        #expect(appended.candidates.count == 1)
+        let result = ConversionResult(
+            requestID: retryID,
+            compositionID: appended.compositionID,
+            revision: appended.activeRequestRevision ?? 0,
+            convertedText: "京"
+        )
+        let outcome = CompositionTransition.reduce(appended, .conversionSucceeded(result))
+        #expect(outcome.state.displayedText == "京x")
+        #expect(outcome.state.candidates.isEmpty)
+        #expect(outcome.state.selectedCandidateIndex == nil)
     }
 }

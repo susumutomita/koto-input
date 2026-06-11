@@ -15,6 +15,15 @@ on:
   push:
     tags:
       - "v*"
+  # タグ push が使えない環境（リモートセッション等）から release を再実行する
+  # ための手動トリガー。指定タグが未存在なら gh release create が main の
+  # 先頭にタグを作成する。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "リリースするタグ名（例: v1.0.1）"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -73,8 +82,10 @@ jobs:
       - name: Package and upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG_INPUT: ${{ inputs.tag }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          # tag push では GITHUB_REF_NAME、workflow_dispatch では入力タグを使う。
+          TAG="${TAG_INPUT:-$GITHUB_REF_NAME}"
           ASSET="Koto-${TAG}.zip"
           ditto -c -k --keepParent build/Koto.app "$ASSET"
           shasum -a 256 "$ASSET" > "$ASSET.sha256"
