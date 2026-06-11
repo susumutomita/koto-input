@@ -263,6 +263,51 @@ public enum RomajiKanaConverter {
         return out.isEmpty ? nil : out
     }
 
+    // MARK: - ひらがな ⇄ カタカナ（かな形態巡回）
+
+    /// ひらがな（U+3041–U+3096）をカタカナ（U+30A1–U+30F6）へコードポイント
+    /// シフトで変換する決定論変換（Issue 41 の Tab 連打巡回用）。
+    ///
+    /// シフト対象はひらがな範囲のスカラーだけなので、長音符（ー）・句読点
+    /// （、。）・濁点の合成記号（U+3099/U+309A）・ASCII・漢字・既存のカタカナ
+    /// は不変。保護語はラテン文字でかな範囲外のため影響を受けず、normalize と
+    /// 違って保護語の照合は不要（原文のまま残った保護語はそのまま残る）。
+    public static func hiraganaToKatakana(_ text: String) -> String {
+        shiftKanaForm(text, range: hiraganaScalarRange, offset: kanaFormOffset)
+    }
+
+    /// カタカナ（U+30A1–U+30F6）をひらがな（U+3041–U+3096）へ戻す
+    /// hiraganaToKatakana の逆変換。かな範囲外の文字は不変。
+    public static func katakanaToHiragana(_ text: String) -> String {
+        shiftKanaForm(text, range: katakanaScalarRange, offset: -kanaFormOffset)
+    }
+
+    /// ひらがな ぁ（U+3041）〜 ゖ（U+3096）。ゔ・小書き・ゕゖ を含む。
+    private static let hiraganaScalarRange: ClosedRange<UInt32> = 0x3041...0x3096
+    /// カタカナ ァ（U+30A1）〜 ヶ（U+30F6）。長音符（U+30FC）は含まない。
+    private static let katakanaScalarRange: ClosedRange<UInt32> = 0x30A1...0x30F6
+    /// ひらがなとカタカナのコードポイント距離（ぁ U+3041 → ァ U+30A1）。
+    private static let kanaFormOffset: Int32 = 0x60
+
+    /// range 内のスカラーだけを offset だけシフトし、それ以外は不変のまま返す。
+    private static func shiftKanaForm(
+        _ text: String,
+        range: ClosedRange<UInt32>,
+        offset: Int32
+    ) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            if range.contains(scalar.value),
+                let shifted = Unicode.Scalar(UInt32(Int32(scalar.value) + offset))
+            {
+                scalars.append(shifted)
+            } else {
+                scalars.append(scalar)
+            }
+        }
+        return String(scalars)
+    }
+
     // MARK: - 境界判定
 
     private static func isWordCharacter(_ character: Character) -> Bool {

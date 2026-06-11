@@ -57,7 +57,8 @@ Issue 1 の Scope 5 で要求される手動検証の記録。実機（macOS 26 
 
 1. Koto を選択し、`kyouhaiihida` と分かち書きなしで入力する。
 2. `Tab` を押す → marked text が「きょうはいいひだ」になること（即時・AI 不要）。
-3. `Escape` → `kyouhaiihida` に戻ること。
+3. もう一度 `Tab` → 「キョウハイイヒダ」、さらに `Tab` → 「きょうはいいひだ」へ巡回すること（かな形態巡回）。
+4. `Escape` → `kyouhaiihida` に戻ること。
 4. もう一度ひらがな化せずに `Shift + Space` → 「今日はいい日だ」相当の自然な日本語になること（前段かな正規化によりモデルの誤読が出ないこと）。
 5. `Claude Code wo tamesu` で `Shift + Space` → 出力に `Claude Code` が原文のまま残ること（保護語）。
 

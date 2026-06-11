@@ -28,6 +28,11 @@ public struct CompositionState: Equatable, Sendable {
     /// candidates のうち現在 marked text として表示している候補の位置。
     /// 候補が無いときは nil。
     public var selectedCandidateIndex: Int?
+    /// Tab 連打のかな形態巡回で現在表示している形態。nil は非巡回で、次の
+    /// normalizeToKana はローマ字→ひらがな化から始まる。テキストを変更する
+    /// 編集・変換要求・変換成功・restoreSource・commit・cancel・deactivate
+    /// でリセットされる（カーソル移動は表示が変わらないため維持する）。
+    public var kanaCycleForm: KanaForm?
 
     public init(
         compositionID: CompositionID,
@@ -41,7 +46,8 @@ public struct CompositionState: Equatable, Sendable {
         retryCount: Int = 0,
         conversionTarget: ConversionTarget = .japanese,
         candidates: [ConversionCandidate] = [],
-        selectedCandidateIndex: Int? = nil
+        selectedCandidateIndex: Int? = nil,
+        kanaCycleForm: KanaForm? = nil
     ) {
         self.compositionID = compositionID
         self.phase = phase
@@ -55,6 +61,7 @@ public struct CompositionState: Equatable, Sendable {
         self.conversionTarget = conversionTarget
         self.candidates = candidates
         self.selectedCandidateIndex = selectedCandidateIndex
+        self.kanaCycleForm = kanaCycleForm
     }
 
     /// 新しい composition ID を持つ初期状態。
