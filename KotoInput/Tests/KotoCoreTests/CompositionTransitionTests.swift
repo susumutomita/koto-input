@@ -864,6 +864,170 @@ struct CompositionTransitionTests {
         #expect(outcome.state.candidates.isEmpty)
     }
 
+    // MARK: - かな形態巡回（Tab 連打）
+
+    @Test("normalizeToKana の連打でひらがな ⇄ カタカナを巡回する")
+    func kanaFormCyclesOnRepeatedNormalize() {
+        let composed = compose("onnna")
+        #expect(composed.kanaCycleForm == nil)
+        let first = CompositionTransition.reduce(composed, .normalizeToKana)
+        #expect(first.state.displayedText == "おんな")
+        #expect(first.state.kanaCycleForm == .hiragana)
+        #expect(first.state.revision == composed.revision + 1)
+        let second = CompositionTransition.reduce(first.state, .normalizeToKana)
+        #expect(second.state.displayedText == "オンナ")
+        #expect(second.state.kanaCycleForm == .katakana)
+        #expect(second.state.phase == .composing)
+        #expect(second.state.selection == .cursor(at: "オンナ".utf16.count))
+        #expect(second.state.revision == first.state.revision + 1)
+        #expect(second.view.markedText == "オンナ")
+        let third = CompositionTransition.reduce(second.state, .normalizeToKana)
+        #expect(third.state.displayedText == "おんな")
+        #expect(third.state.kanaCycleForm == .hiragana)
+        let fourth = CompositionTransition.reduce(third.state, .normalizeToKana)
+        #expect(fourth.state.displayedText == "オンナ")
+        #expect(fourth.state.kanaCycleForm == .katakana)
+    }
+
+    @Test("カタカナ化で保護語・ASCII・記号は変化しない")
+    func katakanaCyclePreservesProtectedTerms() {
+        // 仕様の受け入れ基準「Claude Code wo testo → Claude Code ヲ テスト相当」。
+        // "testo" は "st" がローマ字として解釈不能で原文維持になるため、
+        // かな化可能な "tesuto" で同等の振る舞いを検証する。
+        let composed = compose("Claude Code wo tesuto")
+        let hiragana = CompositionTransition.reduce(
+            composed,
+            .normalizeToKana,
+            protectedTerms: ["Claude Code"]
+        ).state
+        #expect(hiragana.displayedText == "Claude Code を てすと")
+        let katakana = CompositionTransition.reduce(
+            hiragana,
+            .normalizeToKana,
+            protectedTerms: ["Claude Code"]
+        ).state
+        #expect(katakana.displayedText == "Claude Code ヲ テスト")
+        #expect(katakana.kanaCycleForm == .katakana)
+        let back = CompositionTransition.reduce(
+            katakana,
+            .normalizeToKana,
+            protectedTerms: ["Claude Code"]
+        ).state
+        #expect(back.displayedText == "Claude Code を てすと")
+    }
+
+    @Test("テキストを変更する編集で巡回がリセットされ、次はひらがな化から始まる")
+    func editingResetsKanaCycle() {
+        let composed = compose("onnna")
+        let hiragana = CompositionTransition.reduce(composed, .normalizeToKana).state
+        let katakana = CompositionTransition.reduce(hiragana, .normalizeToKana).state
+        #expect(katakana.displayedText == "オンナ")
+        let edited = CompositionTransition.reduce(katakana, .insert("desu")).state
+        #expect(edited.kanaCycleForm == nil)
+        // リセット後の 1 回目はローマ字→ひらがな化（既存のカタカナは不変）。
+        let normalized = CompositionTransition.reduce(edited, .normalizeToKana).state
+        #expect(normalized.displayedText == "オンナです")
+        #expect(normalized.kanaCycleForm == .hiragana)
+        // 2 回目でひらがな部分がカタカナへ巡回する。
+        let cycled = CompositionTransition.reduce(normalized, .normalizeToKana).state
+        #expect(cycled.displayedText == "オンナデス")
+    }
+
+    @Test("deleteBackward でも巡回がリセットされる")
+    func deleteBackwardResetsKanaCycle() {
+        let composed = compose("onnna")
+        let hiragana = CompositionTransition.reduce(composed, .normalizeToKana).state
+        let katakana = CompositionTransition.reduce(hiragana, .normalizeToKana).state
+        let deleted = CompositionTransition.reduce(katakana, .deleteBackward).state
+        #expect(deleted.displayedText == "オン")
+        #expect(deleted.kanaCycleForm == nil)
+    }
+
+    @Test("カーソル移動はテキストを変えないため巡回を維持する")
+    func moveCursorKeepsKanaCycle() {
+        let composed = compose("onnna")
+        let hiragana = CompositionTransition.reduce(composed, .normalizeToKana).state
+        let moved = CompositionTransition.reduce(hiragana, .moveCursor(offset: -1)).state
+        #expect(moved.kanaCycleForm == .hiragana)
+        let katakana = CompositionTransition.reduce(moved, .normalizeToKana).state
+        #expect(katakana.displayedText == "オンナ")
+        #expect(katakana.kanaCycleForm == .katakana)
+    }
+
+    @Test("変換要求で巡回がリセットされる")
+    func requestConversionResetsKanaCycle() {
+        let composed = compose("onnna")
+        let hiragana = CompositionTransition.reduce(composed, .normalizeToKana).state
+        let katakana = CompositionTransition.reduce(hiragana, .normalizeToKana).state
+        let outcome = CompositionTransition.reduce(katakana, .requestConversion(.japanese))
+        #expect(outcome.state.kanaCycleForm == nil)
+    }
+
+    @Test("変換成功で巡回がリセットされる")
+    func conversionSuccessResetsKanaCycle() {
+        // 既にかなのテキストへの normalizeToKana は冪等なので、converting を
+        // 継続したまま（タイプ先行の prefix 維持）巡回状態だけが付く。
+        let before = converting("きょう")
+        let normalized = CompositionTransition.reduce(before, .normalizeToKana).state
+        #expect(normalized.kanaCycleForm == .hiragana)
+        let result = ConversionResult(
+            requestID: fixedRequestID,
+            compositionID: normalized.compositionID,
+            revision: normalized.activeRequestRevision ?? 0,
+            convertedText: "今日"
+        )
+        let outcome = CompositionTransition.reduce(normalized, .conversionSucceeded(result))
+        #expect(outcome.state.displayedText == "今日")
+        #expect(outcome.state.kanaCycleForm == nil)
+    }
+
+    @Test("Escape（restoreSource）で巡回がリセットされ、次はひらがな化から始まる")
+    func restoreSourceResetsKanaCycle() {
+        let state = converted(source: "kyou", convertedText: "今日")
+        // converted からの Tab は編集としてかな化し、巡回状態が付く。
+        let normalized = CompositionTransition.reduce(state, .normalizeToKana).state
+        #expect(normalized.kanaCycleForm == .hiragana)
+        #expect(normalized.canRestoreSource)
+        let restored = CompositionTransition.reduce(normalized, .restoreSource).state
+        #expect(restored.displayedText == "kyou")
+        #expect(restored.kanaCycleForm == nil)
+        // リセット後の Tab はローマ字→ひらがな化から再開する。
+        let again = CompositionTransition.reduce(restored, .normalizeToKana).state
+        #expect(again.displayedText == "きょう")
+        #expect(again.kanaCycleForm == .hiragana)
+    }
+
+    @Test("空の composition への normalizeToKana は composition を終了し巡回状態を持たない")
+    func normalizeToKanaOnEmptyTextEndsComposition() {
+        let state = CompositionState(
+            compositionID: CompositionID(),
+            phase: .composing,
+            sourceText: "",
+            displayedText: "",
+            selection: .cursor(at: 0),
+            revision: 1,
+            activeRequestRevision: nil,
+            isSourcePreserved: false
+        )
+        let outcome = CompositionTransition.reduce(state, .normalizeToKana)
+        #expect(outcome.state.phase == .idle)
+        #expect(outcome.state.kanaCycleForm == nil)
+    }
+
+    @Test("commit / cancel / deactivate で巡回がリセットされる")
+    func terminalCommandsResetKanaCycle() {
+        let composed = compose("onnna")
+        let hiragana = CompositionTransition.reduce(composed, .normalizeToKana).state
+        let katakana = CompositionTransition.reduce(hiragana, .normalizeToKana).state
+        let committed = CompositionTransition.reduce(katakana, .commit)
+        #expect(committed.view.committedText == "オンナ")
+        #expect(committed.state.kanaCycleForm == nil)
+        let cancelled = CompositionTransition.reduce(katakana, .cancel)
+        #expect(cancelled.state.kanaCycleForm == nil)
+        let deactivated = CompositionTransition.reduce(katakana, .deactivate)
+        #expect(deactivated.state.kanaCycleForm == nil)
+    }
+
     @Test("タイプ先行の splice ではスナップショットが変わるため候補がクリアされる")
     func spliceClearsCandidates() {
         let first = converted(source: "kyou", convertedText: "今日")

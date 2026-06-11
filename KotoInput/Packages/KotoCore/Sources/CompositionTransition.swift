@@ -60,16 +60,7 @@ public enum CompositionTransition {
         case .requestConversion(let target):
             return requestConversion(state, target: target, makeRequestID: makeRequestID)
         case .normalizeToKana:
-            // 決定論ひらがな化は編集として扱う。変換中なら prefix が変わるため
-            // 既存のタイプ先行ルールに従ってキャンセルされる。保護語は AI 経路と
-            // 同じく原文のまま残す。
-            return applyEdit(state) { current in
-                let kana = RomajiKanaConverter.normalize(
-                    current.displayedText,
-                    protecting: protectedTerms
-                )
-                return (kana, .cursor(at: kana.utf16.count))
-            }
+            return normalizeToKana(state, protectedTerms: protectedTerms)
         case .selectCandidate(let offset):
             return selectCandidate(state, offset: offset)
         case .conversionSucceeded(let result):
@@ -136,6 +127,9 @@ public enum CompositionTransition {
         next.displayedText = text
         next.selection = selection
         next.revision &+= 1
+        // テキストを変更する編集はかな形態巡回をリセットする（normalizeToKana
+        // 自身も applyEdit を通り、巡回の継続は呼び出し側で上書きする）。
+        next.kanaCycleForm = nil
         if wasConverting && text.hasPrefix(state.sourceText) {
             // タイプ先行: スナップショット（sourceText）が先頭にそのまま残る編集
             // （末尾への追記や追記分の編集）は変換を継続する。結果が届いたら
@@ -157,6 +151,46 @@ public enum CompositionTransition {
             effect: wasConverting ? .cancelConversion : .none,
             view: .from(state: next)
         )
+    }
+
+    /// Tab のかな形態巡回（Issue 41）。非巡回（kanaCycleForm == nil）はローマ字
+    /// →ひらがな化（保護語除外）から始まり、以降は表示テキストへの機械変換で
+    /// ひらがな ⇄ カタカナを巡回する。いずれも applyEdit を通る「編集」なので、
+    /// revision・変換中のキャンセル（prefix が変わる場合）・候補クリア等の
+    /// 既存規則をそのまま踏襲する。
+    private static func normalizeToKana(
+        _ state: CompositionState,
+        protectedTerms: [String]
+    ) -> Outcome {
+        let text: String
+        let form: KanaForm
+        switch state.kanaCycleForm {
+        case .none:
+            // 決定論ひらがな化。保護語は AI 経路（modelInputText）と同じく
+            // 原文のまま残す。
+            text = RomajiKanaConverter.normalize(
+                state.displayedText,
+                protecting: protectedTerms
+            )
+            form = .hiragana
+        case .some(.hiragana):
+            // ひらがな範囲のコードポイントシフトなので、保護語（ラテン文字）・
+            // ASCII・記号・長音符は変化しない（保護語の再照合は不要）。
+            text = RomajiKanaConverter.hiraganaToKatakana(state.displayedText)
+            form = .katakana
+        case .some(.katakana):
+            text = RomajiKanaConverter.katakanaToHiragana(state.displayedText)
+            form = .hiragana
+        }
+        let outcome = applyEdit(state) { _ in
+            (text, .cursor(at: text.utf16.count))
+        }
+        // applyEdit は編集として巡回をリセットするため、巡回の継続をここで
+        // 上書きする。空テキストで composition が終了した場合は idle のまま。
+        guard outcome.state.hasActiveComposition else { return outcome }
+        var next = outcome.state
+        next.kanaCycleForm = form
+        return Outcome(state: next, effect: outcome.effect, view: .from(state: next))
     }
 
     private static func moveCursor(_ state: CompositionState, offset: Int) -> Outcome {
@@ -199,6 +233,8 @@ public enum CompositionTransition {
         let requestID = makeRequestID()
         next.revision &+= 1
         next.phase = .converting(requestID: requestID)
+        // AI 変換に入ったらかな形態巡回は終わる（次の Tab はひらがな化から）。
+        next.kanaCycleForm = nil
         if isReconversionFromSnapshot {
             // 同一スナップショットへの再要求（再抽選・target 切替）は候補の
             // 蓄積を継続する（日本語と英語の候補が共存できる）。
@@ -249,6 +285,9 @@ public enum CompositionTransition {
         let tail = String(state.displayedText.dropFirst(state.sourceText.count))
         var next = state
         next.activeRequestRevision = nil
+        // 表示が変換結果へ差し替わるため、かな形態巡回は終わる（converting 中の
+        // 冪等な normalizeToKana で巡回状態が付いたまま成功するケース）。
+        next.kanaCycleForm = nil
         if tail.isEmpty {
             next.displayedText = result.convertedText
             next.selection = .cursor(at: result.convertedText.utf16.count)
@@ -344,6 +383,7 @@ public enum CompositionTransition {
                 next.sourceText = next.displayedText
                 next.candidates = []
                 next.selectedCandidateIndex = nil
+                next.kanaCycleForm = nil
                 return Outcome(
                     state: next,
                     effect: wasConverting ? .cancelConversion : .none,
@@ -365,6 +405,8 @@ public enum CompositionTransition {
         // 原文へ戻したら候補の文脈も終わる（候補巡回より Escape 復元を優先）。
         next.candidates = []
         next.selectedCandidateIndex = nil
+        // 原文（ローマ字）へ戻ったので、次の Tab はひらがな化から始まる。
+        next.kanaCycleForm = nil
         return Outcome(
             state: next,
             effect: wasConverting ? .cancelConversion : .none,

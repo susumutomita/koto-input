@@ -203,4 +203,44 @@ struct RomajiKanaConverterTests {
         let text = "きょうは雨です。"
         #expect(RomajiKanaConverter.normalize(text) == text)
     }
+
+    // MARK: - ひらがな ⇄ カタカナ（かな形態巡回）
+
+    @Test("ひらがな全範囲（ゔ・小書き・ゕゖ を含む）がカタカナと往復する")
+    func kanaFormFullRangeRoundTrips() {
+        let scalars = (0x3041...0x3096).compactMap { Unicode.Scalar(UInt32($0)) }
+        let hiragana = String(String.UnicodeScalarView(scalars))
+        let katakana = RomajiKanaConverter.hiraganaToKatakana(hiragana)
+        #expect(katakana.unicodeScalars.allSatisfy { (0x30A1...0x30F6).contains(Int($0.value)) })
+        #expect(RomajiKanaConverter.katakanaToHiragana(katakana) == hiragana)
+    }
+
+    @Test("hiraganaToKatakana は ゔ・小書き・促音を変換し長音符・句読点を変更しない")
+    func hiraganaToKatakanaConverts() {
+        #expect(RomajiKanaConverter.hiraganaToKatakana("ゔぁいおりん") == "ヴァイオリン")
+        #expect(RomajiKanaConverter.hiraganaToKatakana("こーひー、おちゃ。") == "コーヒー、オチャ。")
+        #expect(RomajiKanaConverter.hiraganaToKatakana("ゕゖ") == "ヵヶ")
+        #expect(RomajiKanaConverter.hiraganaToKatakana("まっちゃ") == "マッチャ")
+    }
+
+    @Test("hiraganaToKatakana は ASCII・漢字・カタカナ・濁点合成記号を変更しない")
+    func hiraganaToKatakanaPreservesNonHiragana() {
+        #expect(
+            RomajiKanaConverter.hiraganaToKatakana("Claude Code 漢字 123!?")
+                == "Claude Code 漢字 123!?"
+        )
+        #expect(RomajiKanaConverter.hiraganaToKatakana("カタカナ") == "カタカナ")
+        // 濁点の合成記号（U+3099）はシフト範囲外のため、基底のかなだけが変わる。
+        #expect(RomajiKanaConverter.hiraganaToKatakana("か\u{3099}") == "カ\u{3099}")
+    }
+
+    @Test("katakanaToHiragana はカタカナだけをひらがなへ戻す")
+    func katakanaToHiraganaConverts() {
+        #expect(RomajiKanaConverter.katakanaToHiragana("ヴァイオリン") == "ゔぁいおりん")
+        #expect(RomajiKanaConverter.katakanaToHiragana("コーヒー、オチャ。") == "こーひー、おちゃ。")
+        #expect(
+            RomajiKanaConverter.katakanaToHiragana("Claude Code 漢字 ひらがな")
+                == "Claude Code 漢字 ひらがな"
+        )
+    }
 }
