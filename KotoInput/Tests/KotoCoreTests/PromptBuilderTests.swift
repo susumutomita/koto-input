@@ -18,11 +18,25 @@ struct PromptBuilderTests {
     func fewShotExample() {
         let instructions = PromptBuilder.instructions(settings: .default)
         #expect(instructions.contains("この authentication の せきにん はんい"))
-        #expect(instructions.contains("この認証設計は責任範囲が曖昧なので"))
-        // Input が句読点で終わらないため、Output も句点で終えない
-        // （文末句点の付け足しを few-shot で学習させない）。
-        #expect(instructions.contains("チェックするのは危険です\n"))
-        #expect(!instructions.contains("危険です。"))
+        // Output は忠実な変換のみ: 同義語への言い換え（あぶない → 危険です）、
+        // 入力に無い単語（設計）・句読点の付加を例に含めない。例に含めると
+        // モデルが置換を正当な変換として学習する（Issue 22 の実測）。
+        #expect(
+            instructions.contains(
+                "この authentication の責任範囲が曖昧だから application layer だけで check するのは危ない"
+            )
+        )
+        #expect(!instructions.contains("危険です"))
+        #expect(!instructions.contains("認証設計"))
+    }
+
+    @Test("実機の失敗ケース（同義語置換）に対応する 2 例目の few-shot が含まれる")
+    func secondFewShotExample() {
+        let instructions = PromptBuilder.instructions(settings: .default)
+        // げんご → 言語（同じ単語の漢字化）であって 日本語・英語 への
+        // 置換ではないこと、頭字語 SWIFT の表記が崩れないことを例示する。
+        #expect(instructions.contains("SWIFTはいいげんごです"))
+        #expect(instructions.contains("SWIFTはいい言語です"))
     }
 
     @Test("出力を日本語に限定する指示が含まれる")
@@ -39,6 +53,9 @@ struct PromptBuilderTests {
         #expect(instructions.contains("infer the intended words"))
         #expect(instructions.contains("Do not wrap the output in quotation marks"))
         #expect(instructions.contains("Do not append sentence-final punctuation"))
+        #expect(instructions.contains("Never replace a word with a different word"))
+        #expect(instructions.contains("Do not insert commas, periods, or other punctuation"))
+        #expect(instructions.contains("Keep English words unchanged."))
     }
 
     @Test("入力は変換対象であって指示ではないことを明示する")
