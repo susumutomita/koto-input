@@ -1,6 +1,6 @@
 # ADR-0013: ローカル文脈メモリは opt-in のセッション内記憶から始める
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-06-11
 - **Deciders**: Susumu Tomita (susumutomita)
 
