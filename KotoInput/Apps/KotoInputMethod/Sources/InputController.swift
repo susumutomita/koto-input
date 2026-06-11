@@ -11,6 +11,11 @@ import KotoCore
 @objc(KotoInputController)
 final class InputController: IMKInputController {
     private var coordinator: CompositionCoordinator?
+    /// coordinator 生成と Ctrl + Shift + Space の設定判定で共用する
+    /// リポジトリ。UserDefaults を初期化できない場合は永続化しない
+    /// リポジトリへ縮退する。
+    private lazy var settingsRepository: any SettingsRepository =
+        UserDefaultsSettingsRepository() ?? EphemeralSettingsRepository()
 
     private enum KeyCode {
         static let enter: UInt16 = 36
@@ -59,14 +64,29 @@ final class InputController: IMKInputController {
         let coordinator = activeCoordinator()
         let composing = coordinator.state.hasActiveComposition
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        // 矢印キー等は .function / .numericPad が立つため、判定からは除外する。
-        let essentialFlags = flags.subtracting([.function, .numericPad])
+        // 矢印キー等は .function / .numericPad が立ち、Caps Lock 点灯中は
+        // .capsLock が全イベントに立つため、判定からは除外する（残すと
+        // Caps Lock 中に Shift + Space 等の全変換キーが不一致になる）。
+        let essentialFlags = flags.subtracting([.function, .numericPad, .capsLock])
 
         switch event.keyCode {
         case KeyCode.space where essentialFlags == .shift:
             // 日本語変換ショートカット。composition が無ければターミナルへ通す。
             guard composing else { return false }
             coordinator.handle(.requestConversion(.japanese))
+            return true
+
+        case KeyCode.space where essentialFlags == [.control, .shift]:
+            // 文脈つき日本語変換（Issue 46、ADR-0013）。composing を先に
+            // 判定し、composition の無い素通しケース（アプリ側ショートカット
+            // 利用時）では設定ロード（UserDefaults 読み + JSON decode）を
+            // 払わない。設定のロードはこのキー押下時のみで、毎キーストローク
+            // では行わない。OFF（既定）の間はキーを消費せずアプリへ通し、
+            // 従来挙動と完全に一致させる。Ctrl + Shift + 言語キーは文字で
+            // 判定するため space とは衝突しない。
+            guard composing else { return false }
+            guard settingsRepository.load().contextMemoryEnabled else { return false }
+            coordinator.handle(.requestContextualConversion)
             return true
 
         case KeyCode.tab:
@@ -193,11 +213,12 @@ final class InputController: IMKInputController {
         if let coordinator {
             return coordinator
         }
-        let repository: any SettingsRepository =
-            UserDefaultsSettingsRepository() ?? EphemeralSettingsRepository()
+        // 文脈 store はプロセス共有の .shared を渡し、全アプリ・全 coordinator
+        // の commit テキストが 1 つのセッション内文脈メモリへ合流する（ADR-0013）。
         let created = CompositionCoordinator(
             provider: AppleFoundationModelsProvider(),
-            settingsRepository: repository,
+            settingsRepository: settingsRepository,
+            contextStore: .shared,
             renderer: { [weak self] view in
                 self?.render(view)
             }

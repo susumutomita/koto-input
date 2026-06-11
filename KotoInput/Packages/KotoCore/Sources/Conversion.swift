@@ -10,8 +10,15 @@ public struct ConversionRequest: Sendable {
     public let settings: ConversionSettings
     /// 変換先の言語。プロンプトの instructions と出力検証の言語分岐に使う。
     public let target: ConversionTarget
-    /// 同じ原文・同じ target に対する再変換（候補の再抽選）の回数。0 が初回。
+    /// 同じ原文・同じ（target, 文脈の有無）に対する再変換（候補の再抽選）の
+    /// 回数。0 が初回。文脈の有無が切り替わると 0 へ戻る（プロンプトが
+    /// 変わるため、別経路として greedy から始める。ADR-0013）。
     public let attempt: Int
+    /// プロンプトの [CONTEXT] セクションに載せるセッション内文脈（古い→
+    /// 新しい順、ADR-0013）。coordinator がタスク開始時に store から
+    /// スナップショットし、リクエストは不変のまま。空なら [CONTEXT] を
+    /// 出さず、プロンプトは従来と同一になる。
+    public let contextEntries: [String]
 
     /// モデルへ渡すかな化済み入力。プロンプト構築にのみ使う。
     /// 分かち書きなしローマ字の弱点は言語によらないため、前段かな化は
@@ -31,7 +38,8 @@ public struct ConversionRequest: Sendable {
         sourceText: String,
         settings: ConversionSettings,
         target: ConversionTarget = .japanese,
-        attempt: Int = 0
+        attempt: Int = 0,
+        contextEntries: [String] = []
     ) {
         self.id = id
         self.compositionID = compositionID
@@ -40,6 +48,7 @@ public struct ConversionRequest: Sendable {
         self.settings = settings
         self.target = target
         self.attempt = attempt
+        self.contextEntries = contextEntries
     }
 }
 

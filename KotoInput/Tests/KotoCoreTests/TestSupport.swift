@@ -25,6 +25,9 @@ actor ScriptedConversionProvider: TextConversionProvider {
     /// 受け取った変換要求の attempt。同 target の再抽選と異 target の
     /// リセット規則の観測に使う。
     private(set) var receivedAttempts: [Int] = []
+    /// 受け取った変換要求の contextEntries。文脈つき変換がリクエスト経路を
+    /// 通っていること・通常変換に文脈が混入しないことの観測に使う。
+    private(set) var receivedContextEntries: [[String]] = []
 
     func prewarm(settings: ConversionSettings) async {
         prewarmCount += 1
@@ -50,6 +53,7 @@ actor ScriptedConversionProvider: TextConversionProvider {
         receivedModelInputTexts.append(request.modelInputText)
         receivedTargets.append(request.target)
         receivedAttempts.append(request.attempt)
+        receivedContextEntries.append(request.contextEntries)
         let text: String = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 pending.append(
@@ -97,24 +101,49 @@ final class RenderRecorder {
     var last: CompositionViewState? { views.last }
 }
 
-/// 常に固定の設定スナップショットを返すリポジトリ。
-struct FixedSettingsRepository: SettingsRepository {
-    let settings: ConversionSettings
+/// テスト用の設定リポジトリ。save しない限り固定のスナップショットを返し、
+/// save で切り替えれば ON→OFF の即時全消去など実行中の設定変更に対する
+/// coordinator の挙動も検証できる（固定用と可変用の 2 つのテストダブルを
+/// 並存させない）。テストは MainActor 上からのみアクセスするため
+/// @unchecked Sendable で十分。
+final class MutableSettingsRepository: SettingsRepository, @unchecked Sendable {
+    private var settings: ConversionSettings
+
+    init(settings: ConversionSettings) {
+        self.settings = settings
+    }
 
     func load() -> ConversionSettings { settings }
-    func save(_ settings: ConversionSettings) {}
-    func resetToDefaults() {}
+    func save(_ settings: ConversionSettings) { self.settings = settings }
+    func resetToDefaults() { settings = .default }
 }
 
 @MainActor
 func makeCoordinator(
     provider: ScriptedConversionProvider,
-    settings: ConversionSettings = .default
+    settings: ConversionSettings = .default,
+    contextStore: SessionContextStore = SessionContextStore()
+) -> (CompositionCoordinator, RenderRecorder) {
+    makeCoordinator(
+        provider: provider,
+        settingsRepository: MutableSettingsRepository(settings: settings),
+        contextStore: contextStore
+    )
+}
+
+/// テストは `.shared` を使わず個別の store を注入し、テスト間の文脈混入を
+/// 防ぐ（仕様書「テストは個別インスタンス」）。
+@MainActor
+func makeCoordinator(
+    provider: ScriptedConversionProvider,
+    settingsRepository: any SettingsRepository,
+    contextStore: SessionContextStore = SessionContextStore()
 ) -> (CompositionCoordinator, RenderRecorder) {
     let recorder = RenderRecorder()
     let coordinator = CompositionCoordinator(
         provider: provider,
-        settingsRepository: FixedSettingsRepository(settings: settings),
+        settingsRepository: settingsRepository,
+        contextStore: contextStore,
         renderer: { recorder.record($0) }
     )
     return (coordinator, recorder)

@@ -9,23 +9,27 @@ struct CompositionTransitionTests {
         CompositionTransition.reduce(.idle(), .insert(text)).state
     }
 
+    /// 変換要求コマンド（既定は通常の日本語変換。英語は
+    /// `via: .requestConversion(.english)`、文脈つきは
+    /// `via: .requestContextualConversion`）を発行した converting 状態。
     private func converting(
         _ text: String,
-        target: ConversionTarget = .japanese
+        via command: CompositionCommand = .requestConversion(.japanese)
     ) -> CompositionState {
         CompositionTransition.reduce(
             compose(text),
-            .requestConversion(target),
+            command,
             makeRequestID: { fixedRequestID }
         ).state
     }
 
+    /// converting と同じコマンドを経由して変換を成功させた converted 状態。
     private func converted(
         source: String,
         convertedText: String,
-        target: ConversionTarget = .japanese
+        via command: CompositionCommand = .requestConversion(.japanese)
     ) -> CompositionState {
-        let before = converting(source, target: target)
+        let before = converting(source, via: command)
         let result = ConversionResult(
             requestID: fixedRequestID,
             compositionID: before.compositionID,
@@ -118,6 +122,7 @@ struct CompositionTransitionTests {
                     revision: outcome.state.revision,
                     sourceText: "kyou ha ame",
                     target: .japanese,
+                    useContext: false,
                     attempt: 0
                 )
         )
@@ -145,6 +150,7 @@ struct CompositionTransitionTests {
                     revision: outcome.state.revision,
                     sourceText: "kyou",
                     target: .japanese,
+                    useContext: false,
                     attempt: 1
                 )
         )
@@ -169,9 +175,12 @@ struct CompositionTransitionTests {
         let edited = CompositionTransition.reduce(retried, .insert("x")).state
         let outcome = CompositionTransition.reduce(edited, .requestConversion(.japanese))
         #expect(outcome.state.retryCount == 0)
-        if case .startConversion(_, _, _, let sourceText, _, let attempt) = outcome.effect {
+        if case .startConversion(_, _, _, let sourceText, _, let useContext, let attempt) =
+            outcome.effect
+        {
             #expect(attempt == 0)
             #expect(sourceText == "kyoux")
+            #expect(!useContext)
         } else {
             Issue.record("startConversion が発行されなかった: \(outcome.effect)")
         }
@@ -198,6 +207,7 @@ struct CompositionTransitionTests {
                     revision: outcome.state.revision,
                     sourceText: "kyouhaiihida",
                     target: .english,
+                    useContext: false,
                     attempt: 0
                 )
         )
@@ -208,7 +218,7 @@ struct CompositionTransitionTests {
         let state = converted(
             source: "kyouhaiihida",
             convertedText: "Today is a good day",
-            target: .english
+            via: .requestConversion(.english)
         )
         let retryID = ConversionRequestID()
         let outcome = CompositionTransition.reduce(
@@ -227,6 +237,7 @@ struct CompositionTransitionTests {
                     revision: outcome.state.revision,
                     sourceText: "kyouhaiihida",
                     target: .english,
+                    useContext: false,
                     attempt: 1
                 )
         )
@@ -237,7 +248,7 @@ struct CompositionTransitionTests {
         let state = converted(
             source: "kyouhaiihida",
             convertedText: "Today is a good day",
-            target: .english
+            via: .requestConversion(.english)
         )
         let requestID = ConversionRequestID()
         // Shift + Space で日本語変換へ戻すケース。
@@ -259,6 +270,7 @@ struct CompositionTransitionTests {
                     revision: outcome.state.revision,
                     sourceText: "kyouhaiihida",
                     target: .japanese,
+                    useContext: false,
                     attempt: 0
                 )
         )
@@ -289,11 +301,12 @@ struct CompositionTransitionTests {
         let outcome = CompositionTransition.reduce(succeeded, .requestConversion(.english))
         #expect(outcome.state.retryCount == 0)
         #expect(outcome.state.conversionTarget == .english)
-        if case .startConversion(_, _, _, let sourceText, let target, let attempt) =
-            outcome.effect
+        if case .startConversion(_, _, _, let sourceText, let target, let useContext, let attempt)
+            = outcome.effect
         {
             #expect(sourceText == "kyou")
             #expect(target == .english)
+            #expect(!useContext)
             #expect(attempt == 0)
         } else {
             Issue.record("startConversion が発行されなかった: \(outcome.effect)")
@@ -305,7 +318,7 @@ struct CompositionTransitionTests {
         let state = converted(
             source: "kyouhaiihida",
             convertedText: "Today is a good day",
-            target: .english
+            via: .requestConversion(.english)
         )
         let outcome = CompositionTransition.reduce(state, .restoreSource)
         #expect(outcome.state.phase == .composing)
@@ -318,22 +331,179 @@ struct CompositionTransitionTests {
         let state = converted(
             source: "kyouhaiihida",
             convertedText: "Today is a good day",
-            target: .english
+            via: .requestConversion(.english)
         )
         let retried = CompositionTransition.reduce(state, .requestConversion(.english)).state
         #expect(retried.retryCount == 1)
         let edited = CompositionTransition.reduce(retried, .insert("ne")).state
         let outcome = CompositionTransition.reduce(edited, .requestConversion(.english))
         #expect(outcome.state.retryCount == 0)
-        if case .startConversion(_, _, _, let sourceText, let target, let attempt) =
-            outcome.effect
+        if case .startConversion(_, _, _, let sourceText, let target, let useContext, let attempt)
+            = outcome.effect
         {
             #expect(sourceText == "kyouhaiihidane")
             #expect(target == .english)
+            #expect(!useContext)
             #expect(attempt == 0)
         } else {
             Issue.record("startConversion が発行されなかった: \(outcome.effect)")
         }
+    }
+
+    // MARK: - 文脈つき変換（Ctrl + Shift + Space、Issue 46）
+
+    @Test("requestContextualConversion は target japanese・useContext true・attempt 0 で開始する")
+    func contextualConversionStartsWithContext() {
+        let before = compose("arewoyatteoite")
+        let outcome = CompositionTransition.reduce(
+            before,
+            .requestContextualConversion,
+            makeRequestID: { fixedRequestID }
+        )
+        #expect(outcome.state.phase == .converting(requestID: fixedRequestID))
+        #expect(outcome.state.conversionTarget == .japanese)
+        #expect(outcome.state.conversionUsedContext)
+        #expect(outcome.state.sourceText == "arewoyatteoite")
+        #expect(
+            outcome.effect
+                == .startConversion(
+                    requestID: fixedRequestID,
+                    compositionID: before.compositionID,
+                    revision: outcome.state.revision,
+                    sourceText: "arewoyatteoite",
+                    target: .japanese,
+                    useContext: true,
+                    attempt: 0
+                )
+        )
+    }
+
+    @Test("converted（文脈つき）から同じコマンドの再要求は attempt が増える（再抽選）")
+    func contextualRetryIncrementsAttempt() {
+        let state = converted(
+            source: "arewo",
+            convertedText: "あれを",
+            via: .requestContextualConversion
+        )
+        let retryID = ConversionRequestID()
+        let outcome = CompositionTransition.reduce(
+            state,
+            .requestContextualConversion,
+            makeRequestID: { retryID }
+        )
+        #expect(outcome.state.retryCount == 1)
+        // 原文スナップショットから変換し直し、表示も原文へ戻す。
+        #expect(outcome.state.displayedText == "arewo")
+        #expect(
+            outcome.effect
+                == .startConversion(
+                    requestID: retryID,
+                    compositionID: state.compositionID,
+                    revision: outcome.state.revision,
+                    sourceText: "arewo",
+                    target: .japanese,
+                    useContext: true,
+                    attempt: 1
+                )
+        )
+    }
+
+    @Test("converted（文脈つき）から Shift + Space の通常変換は attempt 0 で候補蓄積を継続する")
+    func contextualToPlainConversionRestartsAttempt() {
+        let state = converted(
+            source: "arewo",
+            convertedText: "あれを",
+            via: .requestContextualConversion
+        )
+        #expect(state.candidates.count == 1)
+        let requestID = ConversionRequestID()
+        // attempt の同一性判定キーは（target, useContext）。同じ日本語 target
+        // でも useContext が変われば attempt 0 の greedy から始まる。
+        let outcome = CompositionTransition.reduce(
+            state,
+            .requestConversion(.japanese),
+            makeRequestID: { requestID }
+        )
+        #expect(outcome.state.retryCount == 0)
+        #expect(!outcome.state.conversionUsedContext)
+        // 同一スナップショットへの再要求なので候補の蓄積は継続する。
+        #expect(outcome.state.candidates.count == 1)
+        if case .startConversion(_, _, _, _, let target, let useContext, let attempt) =
+            outcome.effect
+        {
+            #expect(target == .japanese)
+            #expect(!useContext)
+            #expect(attempt == 0)
+        } else {
+            Issue.record("startConversion が発行されなかった: \(outcome.effect)")
+        }
+    }
+
+    @Test("converted（通常）から文脈つき再要求も attempt 0 で候補蓄積を継続する")
+    func plainToContextualConversionRestartsAttempt() {
+        let state = converted(source: "arewo", convertedText: "あれを")
+        #expect(state.candidates.count == 1)
+        let requestID = ConversionRequestID()
+        let outcome = CompositionTransition.reduce(
+            state,
+            .requestContextualConversion,
+            makeRequestID: { requestID }
+        )
+        #expect(outcome.state.retryCount == 0)
+        #expect(outcome.state.conversionUsedContext)
+        #expect(outcome.state.candidates.count == 1)
+        if case .startConversion(_, _, _, _, let target, let useContext, let attempt) =
+            outcome.effect
+        {
+            #expect(target == .japanese)
+            #expect(useContext)
+            #expect(attempt == 0)
+        } else {
+            Issue.record("startConversion が発行されなかった: \(outcome.effect)")
+        }
+    }
+
+    @Test("文脈が結果を変えないとき、文脈つき変換の同一テキストは候補に重複追加されない")
+    func contextualResultWithSameTextDoesNotDuplicateCandidate() {
+        // 文脈が空（または参照すべき曖昧さが無い）場合、文脈つき変換は通常
+        // 変換と同じ結果になり得る。候補の同一性キーは text + target のまま
+        // （ADR-0012）なので、同一テキストは重複追加されず選択し直しになる。
+        let state = converted(source: "arewo", convertedText: "あれを")
+        let requestID = ConversionRequestID()
+        let outcome = CompositionTransition.reduce(
+            state,
+            .requestContextualConversion,
+            makeRequestID: { requestID }
+        )
+        let result = ConversionResult(
+            requestID: requestID,
+            compositionID: outcome.state.compositionID,
+            revision: outcome.state.revision,
+            convertedText: "あれを"
+        )
+        let next = CompositionTransition.reduce(
+            outcome.state,
+            .conversionSucceeded(result)
+        ).state
+        #expect(next.candidates.count == 1)
+        #expect(next.selectedCandidateIndex == 0)
+        #expect(next.displayedText == "あれを")
+    }
+
+    @Test("idle の requestContextualConversion は何も起こさない")
+    func contextualConversionInIdleIsNoop() {
+        let outcome = CompositionTransition.reduce(.idle(), .requestContextualConversion)
+        #expect(outcome.state.phase == .idle)
+        #expect(outcome.effect == .none)
+        #expect(outcome.view.markedText == nil)
+    }
+
+    @Test("空白のみのテキストでは文脈つき変換要求を無視する")
+    func contextualConversionIgnoresWhitespaceOnly() {
+        let before = compose("   ")
+        let outcome = CompositionTransition.reduce(before, .requestContextualConversion)
+        #expect(outcome.state == before)
+        #expect(outcome.effect == .none)
     }
 
     @Test("normalizeToKana は composition をその場でひらがな化する")

@@ -139,5 +139,52 @@
     "rejectedOutputs": ["Try connecting the codex to the cloud"],
     "mustPreserve": ["Codex", "TenkaCloud"],
     "mustNotAdd": []
+  },
+  {
+    "id": "ja-context-are-with-context",
+    "source": "arewoyatteoite",
+    "targetLanguage": "ja",
+    "profile": "neutral",
+    "context": [
+      "Issue 46 のレビューを依頼した",
+      "明日の朝までに返事がほしいとのこと"
+    ],
+    "acceptableOutputs": [
+      "Issue 46 のレビューをやっておいて",
+      "あれをやっておいて"
+    ],
+    "mustPreserve": [],
+    "mustNotAdd": []
+  },
+  {
+    "id": "ja-context-are-without-context",
+    "source": "arewoyatteoite",
+    "targetLanguage": "ja",
+    "profile": "neutral",
+    "acceptableOutputs": ["あれをやっておいて"],
+    "mustPreserve": [],
+    "mustNotAdd": ["Issue 46"]
+  },
+  {
+    "id": "ja-context-reinoken-with-context",
+    "source": "reinokendounatta",
+    "targetLanguage": "ja",
+    "profile": "neutral",
+    "context": ["TenkaCloud の検証環境を申請した", "承認は来週になるらしい"],
+    "acceptableOutputs": [
+      "TenkaCloud の検証環境の申請どうなった",
+      "例の件どうなった"
+    ],
+    "mustPreserve": [],
+    "mustNotAdd": []
+  },
+  {
+    "id": "ja-context-reinoken-without-context",
+    "source": "reinokendounatta",
+    "targetLanguage": "ja",
+    "profile": "neutral",
+    "acceptableOutputs": ["例の件どうなった"],
+    "mustPreserve": [],
+    "mustNotAdd": ["TenkaCloud"]
   }
 ]

@@ -82,6 +82,7 @@ brew install --cask ./Casks/koto.rb
 | `Ctrl + Shift + F` | フランス語へ AI 変換する |
 | `Ctrl + Shift + G` | ドイツ語へ AI 変換する |
 | `Ctrl + Shift + S` | スペイン語へ AI 変換する |
+| `Ctrl + Shift + Space` | セッション内文脈つきで日本語へ AI 変換する（`contextMemoryEnabled` が true のときだけ。false の間はキーを消費せずアプリへ通す） |
 | `Tab` | ローマ字をその場でひらがなにし、連打でひらがな ⇄ カタカナを巡回する（AI 不要・即時） |
 | `↑` / `↓` | 変換後に、これまでに生成した候補（日本語・各言語）を切り替える |
 | `Escape` | 変換のキャンセル、または変換前テキストの復元 |
@@ -115,12 +116,19 @@ defaults delete com.susumutomita.inputmethod.Koto conversionSettings
 | `outputProfile` | `neutral` / `polite` / `business` / `casual` / `technical`（翻訳のトーン。日本語変換には適用しない） |
 | `outputPreset` | `standard` / `chat` / `email` / `codeReview` / `agentPrompt`（用途別のトーンと指示の束。`appAwarePresetsEnabled` が true のときだけ有効） |
 | `appAwarePresetsEnabled` | プリセット適用の総スイッチ（デフォルト false。false なら `outputProfile` をそのまま使う） |
+| `contextMemoryEnabled` | セッション内文脈メモリの総スイッチ（デフォルト false）。true にすると commit したテキストの直近 5 件（計 500 文字以内）を in-memory で保持し、`Ctrl + Shift + Space` の文脈つき日本語変換で参照する |
+
+設定 JSON に typo があると設定全体がデフォルトへフォールバックする（エラーは出ない）。`Ctrl + Shift + Space` が反応しないときは、まず `defaults read com.susumutomita.inputmethod.Koto conversionSettings` で `contextMemoryEnabled` が true で保存されているかを確認する。それでも反応しない場合は、アプリ側が同じキーを先取りしている可能性がある（JetBrains 系 IDE の Smart Type Completion 等。`docs/terminal-compatibility.md` を参照）。
 
 ## プライバシー
 
 - 変換は Apple Foundation Models（オンデバイス）のみで行い、クラウドフォールバックを持たない（[ADR-0002](./docs/adr/0002-apple-foundation-models-をオンデバイス変換プロバイダに採用.md)）。
 - 入力テキストと変換結果をログに残さない。
 - アナリティクスを持たない。
+- セッション内文脈メモリ（[ADR-0013](./docs/adr/0013-ローカル文脈メモリは-opt-in-のセッション内記憶から始める.md)）はデフォルトで OFF。有効化しても文脈はデバイスから出ず、プロンプト構築にのみ使う。
+- 文脈メモリを OFF へ切り替えると、次のテキスト確定または AI 変換要求の時点で保持済みの文脈は全消去される。
+- 文脈メモリはディスクへ永続化せず、Koto の再起動で消える。
+- パスワード欄では macOS が IME を無効化するため、セキュアフィールドへの入力は収集されない。
 
 ## 既知の制限
 
@@ -129,6 +137,8 @@ defaults delete com.susumutomita.inputmethod.Koto conversionSettings
 - ターミナルごとの互換性検証の状況は [docs/terminal-compatibility.md](./docs/terminal-compatibility.md) を参照。
 - 変換中の表示は marked text の下線のみで、スピナーや通知は出ない。
 - ローマ字として最後まで解釈できる小文字の英単語（例: `sudo` → すど）はかな化される。`protectedTerms` への登録で防げる。
+- 短い入力を文脈で大きく展開した出力は、出力長の検証（`maximumExpansionRatio`、デフォルト 4.0 倍）で拒否されることがある。文脈つき変換で展開を多用する場合は値を上げて調整する。
+- 文脈メモリを OFF へ切り替えた後、一度も確定・AI 変換をせずに ON へ戻すと、切替前の文脈が残ったままになる（消去は OFF 後の最初の確定・変換要求の時点のため）。確実に消すには OFF のまま任意のテキストを一度確定するか、Koto を再起動する。
 
 ## 開発
 

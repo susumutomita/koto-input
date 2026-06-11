@@ -50,6 +50,18 @@ Issue 1 の Scope 5 で要求される手動検証の記録。実機（macOS 26 
 | `Ctrl + Shift + E` | VS Code（エクスプローラーフォーカス） | VS Code 側のキーバインド変更、または `terminal.integrated.sendKeybindingsToShell` の調整 |
 | `Ctrl + Shift + C` | VS Code（ターミナルへのコピー）・Ghostty（コピー） | 同上。Ghostty は `keybind` 設定で変更可能 |
 | `Ctrl + Shift + F` / `G` | VS Code（検索 / ソース管理） | 同上 |
+| `Ctrl + Shift + Space` | JetBrains 系 IDE（Smart Type Completion） | IDE 側のキーバインド変更。衝突するのは `contextMemoryEnabled` が true かつ composition 中のみ（false の間は Koto がキーを消費しない） |
+
+## セッション内文脈メモリの E2E シナリオ（Issue 46）
+
+セッション内文脈メモリ（`docs/specs/2026-06-11-セッション内文脈メモリ.md`、ADR-0013）の実機確認。`contextMemoryEnabled` を true にして実施し、結果をマトリクスの備考に記録する。
+
+1. OFF（デフォルト）のまま composition 中に `Ctrl + Shift + Space` → Koto が消費せずアプリ側ショートカットとして動作すること。
+2. ON にして `Issue 46 no review wo onegai` を変換・確定し、続けて `arewoyatteoite` と入力して `Ctrl + Shift + Space` → 直前に確定した内容を踏まえた展開候補が出ること。
+3. 同じ状態で `Shift + Space` → 文脈なしの変換となり、`↑` / `↓` で文脈つき候補と見比べられること。
+4. 別アプリ（メモ等）で文を確定してからターミナルへ戻り、`reinoken` + `Ctrl + Shift + Space` → 別アプリで確定した内容も文脈として参照されること（プロセス共有）。
+5. `contextMemoryEnabled` を false に戻して任意のテキストを確定 → 以後の `Ctrl + Shift + Space` がアプリへ通り、文脈が消去されていること。
+6. ON のまま Koto を再起動（入力ソース切替 + プロセス終了）→ 文脈が空から始まること（ディスク永続なし）。
 
 ## かな正規化の E2E シナリオ（Issue 10）
 

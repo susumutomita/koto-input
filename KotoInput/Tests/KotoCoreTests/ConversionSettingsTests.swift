@@ -85,4 +85,41 @@ struct ConversionSettingsTests {
         repository.resetToDefaults()
         #expect(repository.load().outputProfile == .neutral)
     }
+
+    // MARK: - contextMemoryEnabled（Issue 46、ADR-0013）
+
+    @Test("contextMemoryEnabled の既定値は false で、文脈収集は opt-in")
+    func defaultContextMemoryIsDisabled() {
+        #expect(!ConversionSettings.default.contextMemoryEnabled)
+        #expect(!ConversionSettings().contextMemoryEnabled)
+    }
+
+    @Test("contextMemoryEnabled フィールドの無い旧 JSON は false で decode に成功する")
+    func decodesLegacyJSONWithoutContextMemoryEnabled() throws {
+        let json = """
+            {
+              "style": "neutral",
+              "customInstruction": "",
+              "protectedTerms": ["Koto"],
+              "maximumExpansionRatio": 4.0
+            }
+            """
+        let data = try #require(json.data(using: .utf8))
+        let settings = try JSONDecoder().decode(ConversionSettings.self, from: data)
+        #expect(!settings.contextMemoryEnabled)
+        #expect(settings.protectedTerms == ["Koto"])
+    }
+
+    @Test(
+        "contextMemoryEnabled は encode / decode を往復しても保たれる",
+        arguments: [false, true]
+    )
+    func contextMemoryEnabledRoundtrips(enabled: Bool) throws {
+        var settings = ConversionSettings.default
+        settings.contextMemoryEnabled = enabled
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(ConversionSettings.self, from: data)
+        #expect(decoded == settings)
+        #expect(decoded.contextMemoryEnabled == enabled)
+    }
 }

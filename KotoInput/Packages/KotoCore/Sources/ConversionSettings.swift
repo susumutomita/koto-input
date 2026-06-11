@@ -34,6 +34,10 @@ public struct ConversionSettings: Equatable, Sendable, Codable {
     /// アプリ連動プリセットの明示的な opt-in（ADR-0011）。アプリ検出は
     /// 未実装で、false（既定）の間はプリセットを一切適用しない。
     public var appAwarePresetsEnabled: Bool
+    /// セッション内文脈メモリの明示的な opt-in（ADR-0013）。false（既定）の
+    /// 間は commit テキストの収集も [CONTEXT] の注入も一切行わない。
+    /// ON→OFF の切替は次のインタラクションで保持済み文脈を全消去する。
+    public var contextMemoryEnabled: Bool
 
     /// 保護語のサニタイズ規則（前後の空白を trim し、空要素を除く）の正本。
     /// raw な配列を受け取る呼び出し側（RomajiKanaConverter 等）もこれを使い、
@@ -74,7 +78,8 @@ public struct ConversionSettings: Equatable, Sendable, Codable {
         maximumExpansionRatio: Double = 4.0,
         outputProfile: OutputProfile = .neutral,
         outputPreset: OutputPreset = .standard,
-        appAwarePresetsEnabled: Bool = false
+        appAwarePresetsEnabled: Bool = false,
+        contextMemoryEnabled: Bool = false
     ) {
         self.style = style
         self.customInstruction = customInstruction
@@ -83,6 +88,7 @@ public struct ConversionSettings: Equatable, Sendable, Codable {
         self.outputProfile = outputProfile
         self.outputPreset = outputPreset
         self.appAwarePresetsEnabled = appAwarePresetsEnabled
+        self.contextMemoryEnabled = contextMemoryEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -93,6 +99,7 @@ public struct ConversionSettings: Equatable, Sendable, Codable {
         case outputProfile
         case outputPreset
         case appAwarePresetsEnabled
+        case contextMemoryEnabled
     }
 
     /// 後方互換の decode（ADR-0010・ADR-0011）。既存フィールドは従来どおり
@@ -123,6 +130,11 @@ public struct ConversionSettings: Equatable, Sendable, Codable {
             try container.decodeIfPresent(
                 Bool.self,
                 forKey: .appAwarePresetsEnabled
+            ) ?? false
+        contextMemoryEnabled =
+            try container.decodeIfPresent(
+                Bool.self,
+                forKey: .contextMemoryEnabled
             ) ?? false
     }
 

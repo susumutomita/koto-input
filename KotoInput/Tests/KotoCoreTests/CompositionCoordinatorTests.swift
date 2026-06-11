@@ -525,6 +525,193 @@ struct CompositionCoordinatorTests {
         #expect(recorder.last?.committedText == "今日")
     }
 
+    // MARK: - セッション内文脈メモリ（Issue 46、ADR-0013）
+
+    @Test("ON のとき commit したテキストが hot path 外で store へ追記される")
+    func commitAppendsToStoreWhenEnabled() async throws {
+        let provider = ScriptedConversionProvider()
+        var settings = ConversionSettings.default
+        settings.contextMemoryEnabled = true
+        let store = SessionContextStore()
+        let (coordinator, _) = makeCoordinator(
+            provider: provider,
+            settings: settings,
+            contextStore: store
+        )
+
+        coordinator.handle(.insert("asu kaigi"))
+        coordinator.handle(.commit)
+        // 追記は同期キーハンドリングの外（Task）で行われるため、commit 直後の
+        // 同期時点では store はまだ空（hot path 禁止の観測）。
+        #expect(store.snapshot().isEmpty)
+        try await eventually { store.snapshot() == ["asu kaigi"] }
+    }
+
+    @Test("deactivate 由来の commit も ON なら store へ追記される")
+    func deactivateCommitAppendsToStore() async throws {
+        let provider = ScriptedConversionProvider()
+        var settings = ConversionSettings.default
+        settings.contextMemoryEnabled = true
+        let store = SessionContextStore()
+        let (coordinator, _) = makeCoordinator(
+            provider: provider,
+            settings: settings,
+            contextStore: store
+        )
+
+        coordinator.handle(.insert("kyou no shinchoku"))
+        coordinator.handle(.deactivate)
+        try await eventually { store.snapshot() == ["kyou no shinchoku"] }
+    }
+
+    @Test("ON の文脈つき変換で request.contextEntries が store のスナップショットと一致する")
+    func contextualConversionCarriesStoreSnapshot() async throws {
+        let provider = ScriptedConversionProvider()
+        var settings = ConversionSettings.default
+        settings.contextMemoryEnabled = true
+        let store = SessionContextStore()
+        store.append("Issue 46 のレビューを依頼した")
+        store.append("明日の朝までに返す")
+        let (coordinator, _) = makeCoordinator(
+            provider: provider,
+            settings: settings,
+            contextStore: store
+        )
+
+        coordinator.handle(.insert("arewoyatteoite"))
+        coordinator.handle(.requestContextualConversion)
+        try await eventually { (await provider.pendingCount) == 1 }
+        #expect(
+            await provider.receivedContextEntries
+                == [["Issue 46 のレビューを依頼した", "明日の朝までに返す"]]
+        )
+
+        await provider.resolveOldest(with: "あれをやっておいて")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "あれをやっておいて")
+    }
+
+    @Test("OFF（既定）では commit しても store へ収集されない")
+    func commitDoesNotCollectWhenDisabled() async throws {
+        let provider = ScriptedConversionProvider()
+        let store = SessionContextStore()
+        let (coordinator, _) = makeCoordinator(provider: provider, contextStore: store)
+
+        coordinator.handle(.insert("asu kaigi"))
+        coordinator.handle(.commit)
+        // 遅延タスクが走り切った後も収集ゼロのまま。
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(store.snapshot().isEmpty)
+    }
+
+    @Test("ON で蓄積した後 OFF へ切り替えると、次の commit で全消去される")
+    func turningOffClearsStoreOnNextCommit() async throws {
+        let provider = ScriptedConversionProvider()
+        var settings = ConversionSettings.default
+        settings.contextMemoryEnabled = true
+        let repository = MutableSettingsRepository(settings: settings)
+        let store = SessionContextStore()
+        let (coordinator, _) = makeCoordinator(
+            provider: provider,
+            settingsRepository: repository,
+            contextStore: store
+        )
+
+        coordinator.handle(.insert("asu kaigi"))
+        coordinator.handle(.commit)
+        try await eventually { store.snapshot() == ["asu kaigi"] }
+
+        // OFF へ切り替えた後の commit では、追記ではなく全消去になる。
+        settings.contextMemoryEnabled = false
+        repository.save(settings)
+        coordinator.handle(.insert("tsugi no bun"))
+        coordinator.handle(.commit)
+        try await eventually { store.snapshot().isEmpty }
+    }
+
+    @Test("OFF 中の文脈つき変換は文脈を注入せず store を全消去する")
+    func contextualConversionWhileDisabledClearsStore() async throws {
+        let provider = ScriptedConversionProvider()
+        let store = SessionContextStore()
+        store.append("残っていた文脈")
+        let (coordinator, _) = makeCoordinator(provider: provider, contextStore: store)
+
+        coordinator.handle(.insert("arewoyatteoite"))
+        coordinator.handle(.requestContextualConversion)
+        // 読み出し側の消去は変換タスク内（hot path 外）で行われる。
+        try await eventually { store.snapshot().isEmpty }
+        try await eventually { (await provider.pendingCount) == 1 }
+        #expect(await provider.receivedContextEntries == [[]])
+    }
+
+    @Test("OFF 中は通常変換でも保持済み文脈が全消去される")
+    func plainConversionWhileDisabledClearsStore() async throws {
+        // OFF 中は Ctrl + Shift + Space が InputController で消費されないため、
+        // 本番経路の消去契機は commit と変換要求。変換要求側をここで固定する
+        // （README の「次のテキスト確定または AI 変換要求の時点で全消去」）。
+        let provider = ScriptedConversionProvider()
+        let store = SessionContextStore()
+        store.append("残っていた文脈")
+        let (coordinator, _) = makeCoordinator(provider: provider, contextStore: store)
+
+        coordinator.handle(.insert("kyou"))
+        coordinator.handle(.requestConversion(.japanese))
+        try await eventually { store.snapshot().isEmpty }
+        try await eventually { (await provider.pendingCount) == 1 }
+        #expect(await provider.receivedContextEntries == [[]])
+    }
+
+    @Test("commit 直後の文脈つき変換は、その commit のテキストを文脈に含む")
+    func contextualConversionImmediatelyAfterCommitSeesThatCommit() async throws {
+        // 追記（recordCommittedText の Task）と読み出し（変換タスク内の
+        // snapshot）はどちらも MainActor のジョブで、投入順に実行される。
+        // commit → 即入力 → 即 Ctrl + Shift + Space の最速操作でも直前の
+        // commit が [CONTEXT] から欠落しないことを順序の契約として固定する。
+        let provider = ScriptedConversionProvider()
+        var settings = ConversionSettings.default
+        settings.contextMemoryEnabled = true
+        let store = SessionContextStore()
+        let (coordinator, _) = makeCoordinator(
+            provider: provider,
+            settings: settings,
+            contextStore: store
+        )
+
+        coordinator.handle(.insert("Issue 46 no review wo onegai"))
+        coordinator.handle(.commit)
+        coordinator.handle(.insert("arewoyatteoite"))
+        coordinator.handle(.requestContextualConversion)
+        try await eventually { (await provider.pendingCount) == 1 }
+        #expect(
+            await provider.receivedContextEntries
+                == [["Issue 46 no review wo onegai"]]
+        )
+    }
+
+    @Test("通常変換（useContext false）では store に文脈があっても contextEntries は空")
+    func plainConversionDoesNotCarryContext() async throws {
+        let provider = ScriptedConversionProvider()
+        var settings = ConversionSettings.default
+        settings.contextMemoryEnabled = true
+        let store = SessionContextStore()
+        store.append("残っている文脈")
+        let (coordinator, _) = makeCoordinator(
+            provider: provider,
+            settings: settings,
+            contextStore: store
+        )
+
+        coordinator.handle(.insert("kyou"))
+        coordinator.handle(.requestConversion(.japanese))
+        try await eventually { (await provider.pendingCount) == 1 }
+        #expect(await provider.receivedContextEntries == [[]])
+        // 通常変換は store を消去しない（ON のままなので保持される）。
+        #expect(store.snapshot() == ["残っている文脈"])
+    }
+
     @Test("stale な結果は候補に入らない")
     func staleResultDoesNotBecomeCandidate() async throws {
         let provider = ScriptedConversionProvider()

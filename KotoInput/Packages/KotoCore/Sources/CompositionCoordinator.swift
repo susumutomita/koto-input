@@ -13,15 +13,20 @@ public final class CompositionCoordinator {
 
     private let provider: any TextConversionProvider
     private let settingsRepository: any SettingsRepository
+    /// セッション内文脈メモリ（ADR-0013）。既定はプロセス共有の `.shared` で、
+    /// 全アプリの commit テキストが合流する。テストは個別インスタンスを注入する。
+    private let contextStore: SessionContextStore
     private let renderer: @MainActor (CompositionViewState) -> Void
 
     public init(
         provider: any TextConversionProvider,
         settingsRepository: any SettingsRepository,
+        contextStore: SessionContextStore = .shared,
         renderer: @escaping @MainActor (CompositionViewState) -> Void
     ) {
         self.provider = provider
         self.settingsRepository = settingsRepository
+        self.contextStore = contextStore
         self.renderer = renderer
         self.state = .idle()
     }
@@ -41,7 +46,7 @@ public final class CompositionCoordinator {
             cancelConversionTask()
         case .startConversion(
             let requestID, let compositionID, let revision, let sourceText, let target,
-            let attempt
+            let useContext, let attempt
         ):
             cancelConversionTask()
             startConversion(
@@ -50,6 +55,7 @@ public final class CompositionCoordinator {
                 revision: revision,
                 sourceText: sourceText,
                 target: target,
+                useContext: useContext,
                 attempt: attempt
             )
         }
@@ -58,6 +64,12 @@ public final class CompositionCoordinator {
             prewarmProvider()
         }
         renderer(outcome.view)
+        // committedText 非 nil ⟺ shouldCommit（commit 遷移だけが設定する）。
+        // Enter commit と deactivate 由来の commit の両方が収集対象
+        // （ADR-0013）。描画後に遅延タスクで行い、hot path には入れない。
+        if let committed = outcome.view.committedText {
+            recordCommittedText(committed)
+        }
     }
 
     /// normalizeToKana だけが設定の保護語を参照する。キーストローク毎の
@@ -82,29 +94,61 @@ public final class CompositionCoordinator {
         conversionTask = nil
     }
 
+    /// commit テキストのセッション内文脈メモリへの追記。同期キーハンドリングの
+    /// 外（Task）で行い、store・設定ロードを hot path から外す（ADR-0013）。
+    /// 設定の確認もタスク内で行い、OFF の観測時は store 側の入口（append）が
+    /// 保持分を全消去する（ON→OFF 切替後の最初の確定・変換要求で確実に
+    /// 消えるようにする）。deactivate 由来の commit 直後に coordinator が
+    /// 解放されても追記を取りこぼさないよう、self ではなく store と
+    /// repository を直接捕捉する（store はプロセス共有の .shared であり、
+    /// coordinator より長生きする）。
+    private func recordCommittedText(_ text: String) {
+        let settingsRepository = self.settingsRepository
+        let contextStore = self.contextStore
+        Task { @MainActor in
+            contextStore.append(
+                text,
+                enabled: settingsRepository.load().contextMemoryEnabled
+            )
+        }
+    }
+
     /// モデル呼び出しはキーイベントの同期ハンドリング中には行わない。
     /// converting 状態を描画してから非同期タスクで実行する。
+    /// 設定ロード（JSON decode）と文脈の読み出しもタスク内で行い、同期
+    /// キーハンドリングから外す。MainActor のジョブは投入順に実行されるため、
+    /// 直前の commit の遅延追記（recordCommittedText の Task）が必ず先に
+    /// 走り、「commit 直後の文脈つき変換にその commit が含まれる」ことが
+    /// 決定論的に成立する。
     private func startConversion(
         requestID: ConversionRequestID,
         compositionID: CompositionID,
         revision: UInt64,
         sourceText: String,
         target: ConversionTarget,
+        useContext: Bool,
         attempt: Int
     ) {
-        // 設定はタスク開始時点の不変スナップショットを使う。
-        let settings = settingsRepository.load()
-        let request = ConversionRequest(
-            id: requestID,
-            compositionID: compositionID,
-            revision: revision,
-            sourceText: sourceText,
-            settings: settings,
-            target: target,
-            attempt: attempt
-        )
         let provider = self.provider
+        let settingsRepository = self.settingsRepository
+        let contextStore = self.contextStore
         conversionTask = Task { [weak self] in
+            // 設定はタスク開始時点の不変スナップショットを使う。文脈の読み出しは
+            // 変換要求のたびに行い、設定 OFF の観測時は store 側の入口
+            // （snapshot）が保持分を全消去する（追記側 append と対）。
+            // 注入するのは文脈つき変換（useContext）のときだけ。
+            let settings = settingsRepository.load()
+            let entries = contextStore.snapshot(enabled: settings.contextMemoryEnabled)
+            let request = ConversionRequest(
+                id: requestID,
+                compositionID: compositionID,
+                revision: revision,
+                sourceText: sourceText,
+                settings: settings,
+                target: target,
+                attempt: attempt,
+                contextEntries: useContext ? entries : []
+            )
             let command = await Self.performConversion(provider: provider, request: request)
             guard !Task.isCancelled, let self, let command else { return }
             self.handle(command)
