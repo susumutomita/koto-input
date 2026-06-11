@@ -58,7 +58,13 @@ brew install --cask ./Casks/koto.rb
 
 | キー | 動作 |
 |------|------|
-| `Shift + Space` | AI 変換を要求する |
+| `Shift + Space` | AI 変換を要求する（日本語） |
+| `Ctrl + Shift + E` | 英語へ AI 変換する |
+| `Ctrl + Shift + C` | 中国語（簡体字）へ AI 変換する |
+| `Ctrl + Shift + K` | 韓国語へ AI 変換する |
+| `Ctrl + Shift + F` | フランス語へ AI 変換する |
+| `Ctrl + Shift + G` | ドイツ語へ AI 変換する |
+| `Ctrl + Shift + S` | スペイン語へ AI 変換する |
 | `Tab` | ローマ字をその場でひらがなに変換する（AI 不要・即時） |
 | `Escape` | 変換のキャンセル、または変換前テキストの復元 |
 | `Enter` | composition の確定（送信はしない） |
@@ -66,7 +72,9 @@ brew install --cask ./Casks/koto.rb
 
 Enter は確定だけを行う。Claude Code / Codex へプロンプトを送信するのは、確定後にもう一度押す Enter。
 
-変換結果が気に入らない場合、編集せずにもう一度 `Shift + Space` を押すと別候補を再抽選する（初回は決定的、2 回目以降は揺らぎあり）。`Escape` を押せば何回再変換した後でも元のローマ字へ戻る。
+変換結果が気に入らない場合、編集せずにもう一度同じ変換キーを押すと別候補を再抽選する（初回は決定的、2 回目以降は揺らぎあり）。変換後に別の言語キーを押せばその言語へ変換し直し、`Shift + Space` で日本語へ戻せる。`Escape` を押せば何回再変換した後でも元のローマ字へ戻る。
+
+言語キーは入力中（composition がある間）だけ Koto が消費する。composition が無いときはアプリへそのまま通すため、ターミナルのショートカットを奪わない。ただし VS Code 統合ターミナル等では入力中でもアプリ側が `Ctrl + Shift + E`（エクスプローラー）などを先取りする場合がある。その場合はアプリ側のキーバインド変更で回避する（既知の衝突は `docs/terminal-compatibility.md` を参照）。
 
 ## 設定
 

@@ -17,6 +17,9 @@ public struct CompositionState: Equatable, Sendable {
     public var isSourcePreserved: Bool
     /// 同じ原文に対する再変換（候補の再抽選）の回数。編集でリセットされる。
     public var retryCount: Int
+    /// 直近の変換要求のターゲット言語。converted からの再要求が同じ target
+    /// なら再抽選（attempt + 1）、別の target なら attempt 0 で変換し直す。
+    public var conversionTarget: ConversionTarget
 
     public init(
         compositionID: CompositionID,
@@ -27,7 +30,8 @@ public struct CompositionState: Equatable, Sendable {
         revision: UInt64,
         activeRequestRevision: UInt64?,
         isSourcePreserved: Bool,
-        retryCount: Int = 0
+        retryCount: Int = 0,
+        conversionTarget: ConversionTarget = .japanese
     ) {
         self.compositionID = compositionID
         self.phase = phase
@@ -38,6 +42,7 @@ public struct CompositionState: Equatable, Sendable {
         self.activeRequestRevision = activeRequestRevision
         self.isSourcePreserved = isSourcePreserved
         self.retryCount = retryCount
+        self.conversionTarget = conversionTarget
     }
 
     /// 新しい composition ID を持つ初期状態。

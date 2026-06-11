@@ -7,12 +7,13 @@ public enum CompositionTransition {
         /// 実行中の変換タスクをキャンセルする。
         case cancelConversion
         /// 既存タスクをキャンセルした上で新しい変換を開始する。
-        /// attempt は同じ原文に対する再変換（候補の再抽選）の回数。
+        /// attempt は同じ原文・同じ target に対する再変換（候補の再抽選）の回数。
         case startConversion(
             requestID: ConversionRequestID,
             compositionID: CompositionID,
             revision: UInt64,
             sourceText: String,
+            target: ConversionTarget,
             attempt: Int
         )
     }
@@ -56,8 +57,8 @@ public enum CompositionTransition {
             }
         case .moveCursor(let offset):
             return moveCursor(state, offset: offset)
-        case .requestConversion:
-            return requestConversion(state, makeRequestID: makeRequestID)
+        case .requestConversion(let target):
+            return requestConversion(state, target: target, makeRequestID: makeRequestID)
         case .normalizeToKana:
             // 決定論ひらがな化は編集として扱う。変換中なら prefix が変わるため
             // 既存のタイプ先行ルールに従ってキャンセルされる。保護語は AI 経路と
@@ -168,6 +169,7 @@ public enum CompositionTransition {
 
     private static func requestConversion(
         _ state: CompositionState,
+        target: ConversionTarget,
         makeRequestID: () -> ConversionRequestID
     ) -> Outcome {
         let trimmed = state.displayedText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -176,10 +178,12 @@ public enum CompositionTransition {
             // 見せる価値がないため、状態も変えない）。
             return noop(state)
         }
-        // converted から編集せずに再要求された場合は「再変換（候補の再抽選）」。
-        // 原文スナップショットから変換し直し、表示も原文へ戻す（タイプ先行の
-        // prefix 整合を保つため）。Escape の復元先は常に原文のまま。
-        let isRetry: Bool = {
+        // converted から編集せずに再要求された場合は、原文スナップショットから
+        // 変換し直し、表示も原文へ戻す（タイプ先行の prefix 整合を保つため）。
+        // 同じ target なら「再変換（候補の再抽選）」として attempt を増やし、
+        // 別の target なら attempt 0 からその言語へ変換し直す。
+        // Escape の復元先は常に原文のまま。
+        let isReconversionFromSnapshot: Bool = {
             if case .converted = state.phase, state.isSourcePreserved {
                 return true
             }
@@ -189,8 +193,8 @@ public enum CompositionTransition {
         let requestID = makeRequestID()
         next.revision &+= 1
         next.phase = .converting(requestID: requestID)
-        if isRetry {
-            next.retryCount = state.retryCount + 1
+        if isReconversionFromSnapshot {
+            next.retryCount = target == state.conversionTarget ? state.retryCount + 1 : 0
             next.displayedText = state.sourceText
             next.selection = .cursor(at: state.sourceText.utf16.count)
         } else {
@@ -199,6 +203,7 @@ public enum CompositionTransition {
             next.sourceText = state.displayedText
             next.retryCount = 0
         }
+        next.conversionTarget = target
         next.isSourcePreserved = true
         next.activeRequestRevision = next.revision
         return Outcome(
@@ -208,6 +213,7 @@ public enum CompositionTransition {
                 compositionID: next.compositionID,
                 revision: next.revision,
                 sourceText: next.sourceText,
+                target: target,
                 attempt: next.retryCount
             ),
             view: .from(state: next)

@@ -15,10 +15,12 @@ import FoundationModels
 /// ため、変換の決定性（greedy sampling）は保たれる。
 public actor AppleFoundationModelsProvider: TextConversionProvider {
     #if canImport(FoundationModels)
-    /// prewarm で温めたセッションの置き場。instructions が一致する次の変換で
-    /// 1 回だけ使う。actor の stored property に @available 型を直接置けない
-    /// ため AnyObject で持ち、利用側でキャストする。
-    private var preparedBox: AnyObject?
+    /// prewarm で温めたセッションの置き場（target 別）。instructions は
+    /// target ごとに異なるため ConversionTarget をキーにキャッシュし、
+    /// instructions が一致する次の変換で 1 回だけ使う。actor の stored
+    /// property に @available 型を直接置けないため AnyObject で持ち、
+    /// 利用側でキャストする。
+    private var preparedBoxes: [ConversionTarget: AnyObject] = [:]
 
     @available(macOS 26.0, *)
     private final class Prepared {
@@ -32,14 +34,17 @@ public actor AppleFoundationModelsProvider: TextConversionProvider {
     }
 
     @available(macOS 26.0, *)
-    private func takePrepared(matching instructions: String) -> LanguageModelSession? {
+    private func takePrepared(
+        for target: ConversionTarget,
+        matching instructions: String
+    ) -> LanguageModelSession? {
         guard
-            let box = preparedBox as? Prepared,
+            let box = preparedBoxes[target] as? Prepared,
             box.instructions == instructions
         else {
             return nil
         }
-        preparedBox = nil
+        preparedBoxes[target] = nil
         return box.session
     }
     #endif
@@ -74,13 +79,15 @@ public actor AppleFoundationModelsProvider: TextConversionProvider {
         #if canImport(FoundationModels)
         guard #available(macOS 26.0, *) else { return }
         guard case .available = SystemLanguageModel.default.availability else { return }
-        let instructions = PromptBuilder.instructions(settings: settings)
-        if let box = preparedBox as? Prepared, box.instructions == instructions {
+        // prewarm は日本語のみ。翻訳 6 言語分のセッション常駐を避け、
+        // 翻訳セッションは初回要求時にその場で作る（仕様の非機能要件）。
+        let instructions = PromptBuilder.instructions(settings: settings, target: .japanese)
+        if let box = preparedBoxes[.japanese] as? Prepared, box.instructions == instructions {
             return
         }
         let session = LanguageModelSession(instructions: instructions)
         session.prewarm()
-        preparedBox = Prepared(instructions: instructions, session: session)
+        preparedBoxes[.japanese] = Prepared(instructions: instructions, session: session)
         #else
         _ = settings
         #endif
@@ -91,15 +98,19 @@ public actor AppleFoundationModelsProvider: TextConversionProvider {
         guard #available(macOS 26.0, *) else {
             throw KotoError.modelUnavailable("macOS 26 以降が必要です。")
         }
-        let instructions = PromptBuilder.instructions(settings: request.settings)
+        let instructions = PromptBuilder.instructions(
+            settings: request.settings,
+            target: request.target
+        )
         // モデルへはかな化済み入力（modelInputText）を渡す。表示・Escape 復元・
         // 出力検証は元の sourceText が基準のまま（ADR-0006）。
         let prompt = PromptBuilder.prompt(modelInput: request.modelInputText)
         do {
-            // prewarm 済みセッションがあれば 1 回だけ使う。無ければその場で作る。
-            // どちらも使い捨てで、transcript を次の変換へ持ち越さない（ADR-0002）。
+            // target に対応する prewarm 済みセッションがあれば 1 回だけ使う。
+            // 無ければその場で作る。どちらも使い捨てで、transcript を次の
+            // 変換へ持ち越さない（ADR-0002）。
             let session =
-                takePrepared(matching: instructions)
+                takePrepared(for: request.target, matching: instructions)
                 ?? LanguageModelSession(instructions: instructions)
             // 初回（attempt 0）は greedy で決定的に変換する。再変換（attempt 1
             // 以降）は温度付きサンプリングで別候補を抽選する（Issue 19）。

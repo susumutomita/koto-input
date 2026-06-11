@@ -62,9 +62,9 @@ final class InputController: IMKInputController {
 
         switch event.keyCode {
         case KeyCode.space where essentialFlags == .shift:
-            // 変換ショートカット。composition が無ければターミナルへ通す。
+            // 日本語変換ショートカット。composition が無ければターミナルへ通す。
             guard composing else { return false }
-            coordinator.handle(.requestConversion)
+            coordinator.handle(.requestConversion(.japanese))
             return true
 
         case KeyCode.tab:
@@ -112,6 +112,22 @@ final class InputController: IMKInputController {
 
         default:
             break
+        }
+
+        // Control + Shift + 言語キー: composition をターゲット言語へ AI 変換
+        // する（E = 英語、C = 中国語、K = 韓国語、F = フランス語、G = ドイツ語、
+        // S = スペイン語）。キーコードではなく文字で判定し、キーボード
+        // レイアウト差を吸収する。composition が無ければ消費せずアプリへ通す
+        // （ターミナルのショートカットを奪わない）。
+        if essentialFlags == [.control, .shift],
+            let characters = event.charactersIgnoringModifiers,
+            characters.count == 1,
+            let languageKey = characters.first,
+            let target = ConversionTarget(languageKey: languageKey)
+        {
+            guard composing else { return false }
+            coordinator.handle(.requestConversion(target))
+            return true
         }
 
         // Control + C: 変換タスクと composition を破棄した上で、ターミナルの

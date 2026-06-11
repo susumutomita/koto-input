@@ -11,7 +11,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, recorder) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou ha ame."))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         #expect(recorder.last?.status == .converting)
 
         try await eventually { (await provider.pendingCount) == 1 }
@@ -36,7 +36,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, recorder) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
 
         // スナップショットの先頭一致を壊す編集（先頭への挿入）で composing へ戻る。
@@ -58,7 +58,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
 
         // 変換中に次のテキストを打ち続ける。
@@ -81,9 +81,9 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 2 }
 
         // A が先に完了しても無視される。
@@ -107,7 +107,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, recorder) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
 
         coordinator.handle(.deactivate)
@@ -131,7 +131,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually {
             if case .failed = coordinator.state.phase { return true }
             return false
@@ -146,7 +146,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually {
             if case .failed = coordinator.state.phase { return true }
             return false
@@ -160,7 +160,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
         await provider.resolveOldest(with: "\n \n")
         try await eventually {
@@ -176,7 +176,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("Claude Code de naosu"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
         await provider.resolveOldest(with: "クロードコードで直す")
         try await eventually {
@@ -194,7 +194,7 @@ struct CompositionCoordinatorTests {
         // 実機で観測したフロー: SWIFThaiigengodesu → モデルが
         // 「Swiftは、英語です」と表記崩れ + 意味置換した出力を返す。
         coordinator.handle(.insert("SWIFThaiigengodesu"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
         #expect(await provider.receivedModelInputTexts == ["SWIFTはいいげんごです"])
         await provider.resolveOldest(with: "Swiftは、英語です")
@@ -211,7 +211,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
 
         // 末尾削除はスナップショットの先頭一致を壊すためキャンセルされる。
@@ -247,7 +247,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
         await provider.failOldest(with: .generationFailed("guardrail"))
         try await eventually {
@@ -275,7 +275,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyouhaiihida"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
 
         // モデルへはかな化済みテキストが渡り、表示はローマ字のまま。
@@ -301,7 +301,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider, settings: settings)
 
         coordinator.handle(.insert("make wo tukau"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
         #expect(await provider.receivedModelInputTexts == ["make を つかう"])
 
@@ -323,7 +323,7 @@ struct CompositionCoordinatorTests {
         // かな化後の modelInputText（ぶんをかくにん する）には「bun」が
         // 現れないが、検証は元テキスト基準なので保護語の喪失を検出できる。
         coordinator.handle(.insert("bunwokakunin suru"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
         await provider.resolveOldest(with: "文を確認する")
         try await eventually {
@@ -343,7 +343,7 @@ struct CompositionCoordinatorTests {
         // かな化後の modelInputText（そのことば を きく）に「こと」が部分一致
         // しても、元テキストに保護語が無いため正当な変換は受理される。
         coordinator.handle(.insert("sonokotoba wo kiku"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
         await provider.resolveOldest(with: "その言葉を聞く")
         try await eventually {
@@ -359,7 +359,7 @@ struct CompositionCoordinatorTests {
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         coordinator.handle(.insert("kyou"))
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
         await provider.resolveOldest(with: "今日")
         try await eventually {
@@ -372,7 +372,7 @@ struct CompositionCoordinatorTests {
         #expect(coordinator.state.phase == .composing)
         #expect(coordinator.state.displayedText == "kyou")
 
-        coordinator.handle(.requestConversion)
+        coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
         await provider.resolveOldest(with: "今日")
         try await eventually {
@@ -380,5 +380,107 @@ struct CompositionCoordinatorTests {
             return false
         }
         #expect(coordinator.state.displayedText == "今日")
+    }
+
+    // MARK: - 多言語変換ターゲット
+
+    @Test("英語変換: provider へ target とかな化済み入力が届き、Escape で元のローマ字へ戻る")
+    func englishConversionLifecycle() async throws {
+        let provider = ScriptedConversionProvider()
+        let (coordinator, recorder) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("kyouhaiihida"))
+        coordinator.handle(.requestConversion(.english))
+        #expect(recorder.last?.status == .converting)
+        try await eventually { (await provider.pendingCount) == 1 }
+
+        // provider はターゲット言語付きのリクエストを受け取り、モデル入力は
+        // 日本語変換と同じ前段かな化を通る。表示はローマ字のまま。
+        #expect(await provider.receivedTargets == [.english])
+        #expect(await provider.receivedModelInputTexts == ["きょうはいいひだ"])
+        #expect(coordinator.state.displayedText == "kyouhaiihida")
+
+        await provider.resolveOldest(with: "Today is a good day")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "Today is a good day")
+        #expect(recorder.last?.markedText == "Today is a good day")
+
+        // Escape 復元の対象は元のローマ字テキスト。
+        coordinator.handle(.restoreSource)
+        #expect(coordinator.state.displayedText == "kyouhaiihida")
+    }
+
+    @Test("converted（英語）から日本語へ切り替えると attempt 0 のリクエストが provider へ届く")
+    func switchingTargetSendsFreshAttempt() async throws {
+        let provider = ScriptedConversionProvider()
+        let (coordinator, _) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("kyou"))
+        coordinator.handle(.requestConversion(.english))
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "Today")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+
+        // 同じ target の連打は attempt + 1 の再抽選。
+        coordinator.handle(.requestConversion(.english))
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "This day")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+
+        // Shift + Space で日本語へ戻すと attempt 0 から変換し直す。
+        coordinator.handle(.requestConversion(.japanese))
+        try await eventually { (await provider.pendingCount) == 1 }
+        #expect(await provider.receivedAttempts == [0, 1, 0])
+        #expect(await provider.receivedTargets == [.english, .english, .japanese])
+
+        await provider.resolveOldest(with: "今日")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "今日")
+    }
+
+    @Test("英語変換でも保護語が消えた出力は拒否され元テキストを保持する")
+    func englishConversionLostProtectedTermKeepsSource() async throws {
+        let provider = ScriptedConversionProvider()
+        let (coordinator, _) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("Claude Code de naosu"))
+        coordinator.handle(.requestConversion(.english))
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "Fix it with claude code")
+        try await eventually {
+            if case .failed = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "Claude Code de naosu")
+    }
+
+    @Test("英語変換では日本語固有の鉤括弧 unwrap が適用されない（target が検証へ届く）")
+    func englishConversionSkipsJapaneseSpecificValidation() async throws {
+        let provider = ScriptedConversionProvider()
+        let (coordinator, _) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("kyou"))
+        coordinator.handle(.requestConversion(.english))
+        try await eventually { (await provider.pendingCount) == 1 }
+        // 日本語ターゲットなら外側の鉤括弧は取り除かれるが、英語では
+        // 訳文の一部として保持される。
+        await provider.resolveOldest(with: "「Today」")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "「Today」")
     }
 }

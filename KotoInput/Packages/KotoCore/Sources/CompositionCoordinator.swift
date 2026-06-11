@@ -40,7 +40,8 @@ public final class CompositionCoordinator {
         case .cancelConversion:
             cancelConversionTask()
         case .startConversion(
-            let requestID, let compositionID, let revision, let sourceText, let attempt
+            let requestID, let compositionID, let revision, let sourceText, let target,
+            let attempt
         ):
             cancelConversionTask()
             startConversion(
@@ -48,6 +49,7 @@ public final class CompositionCoordinator {
                 compositionID: compositionID,
                 revision: revision,
                 sourceText: sourceText,
+                target: target,
                 attempt: attempt
             )
         }
@@ -87,6 +89,7 @@ public final class CompositionCoordinator {
         compositionID: CompositionID,
         revision: UInt64,
         sourceText: String,
+        target: ConversionTarget,
         attempt: Int
     ) {
         // 設定はタスク開始時点の不変スナップショットを使う。
@@ -97,6 +100,7 @@ public final class CompositionCoordinator {
             revision: revision,
             sourceText: sourceText,
             settings: settings,
+            target: target,
             attempt: attempt
         )
         let provider = self.provider
@@ -136,7 +140,8 @@ public final class CompositionCoordinator {
             switch ConversionOutputValidator.validate(
                 output: result.convertedText,
                 source: request.sourceText,
-                settings: request.settings
+                settings: request.settings,
+                target: request.target
             ) {
             case .success(let text):
                 return .conversionSucceeded(

@@ -11,15 +11,19 @@ public enum ConversionOutputValidator {
     public static func validate(
         output: String,
         source: String,
-        settings: ConversionSettings
+        settings: ConversionSettings,
+        target: ConversionTarget = .japanese
     ) -> Result<String, KotoError> {
-        let trimmed = stripSpuriousTrailingPeriod(
-            unwrapSpuriousBrackets(
-                trimLineEndings(output),
+        var trimmed = trimLineEndings(output)
+        if target == .japanese {
+            // 末尾句点の strip と鉤括弧の unwrap は日本語の出力癖への対処
+            // なので .japanese のみに適用する。訳文の句読点・括弧は訳の
+            // 一部として保持する。
+            trimmed = stripSpuriousTrailingPeriod(
+                unwrapSpuriousBrackets(trimmed, source: source),
                 source: source
-            ),
-            source: source
-        )
+            )
+        }
 
         if trimmed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return .failure(.emptyResponse)

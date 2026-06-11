@@ -19,6 +19,12 @@ actor ScriptedConversionProvider: TextConversionProvider {
     /// 受け取った変換要求の modelInputText（モデルへ渡るかな化済み入力）。
     /// かな化がリクエスト経路を通っていることの観測に使う。
     private(set) var receivedModelInputTexts: [String] = []
+    /// 受け取った変換要求のターゲット言語。多言語変換キーがリクエスト経路を
+    /// 通っていることの観測に使う。
+    private(set) var receivedTargets: [ConversionTarget] = []
+    /// 受け取った変換要求の attempt。同 target の再抽選と異 target の
+    /// リセット規則の観測に使う。
+    private(set) var receivedAttempts: [Int] = []
 
     func prewarm(settings: ConversionSettings) async {
         prewarmCount += 1
@@ -42,6 +48,8 @@ actor ScriptedConversionProvider: TextConversionProvider {
 
     func convert(_ request: ConversionRequest) async throws -> ConversionResult {
         receivedModelInputTexts.append(request.modelInputText)
+        receivedTargets.append(request.target)
+        receivedAttempts.append(request.attempt)
         let text: String = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 pending.append(

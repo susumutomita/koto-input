@@ -230,4 +230,98 @@ struct ConversionOutputValidatorTests {
         }
         #expect(message.contains("Claude Code"))
     }
+
+    // MARK: - 多言語変換ターゲット
+
+    @Test("英語ターゲットでは出力末尾の句点を strip しない")
+    func englishTargetKeepsTrailingPeriod() {
+        // 日本語固有の末尾句点 strip は .japanese のみ。訳文の文末句読点は
+        // 訳の一部として保持する。
+        let result = ConversionOutputValidator.validate(
+            output: "Today is a good day。",
+            source: "kyouhaiihida",
+            settings: .default,
+            target: .english
+        )
+        #expect(result == .success("Today is a good day。"))
+    }
+
+    @Test("英語ターゲットでは出力全体を包む鉤括弧を unwrap しない")
+    func englishTargetKeepsWrappingBrackets() {
+        let result = ConversionOutputValidator.validate(
+            output: "「Today」",
+            source: "kyou",
+            settings: .default,
+            target: .english
+        )
+        #expect(result == .success("「Today」"))
+    }
+
+    @Test("英語ターゲットでも保護語の消失は拒否する")
+    func englishTargetStillValidatesProtectedTerms() {
+        let result = ConversionOutputValidator.validate(
+            output: "Fix it with claude code",
+            source: "Claude Code wo naosu",
+            settings: .default,
+            target: .english
+        )
+        guard case .failure(.generationFailed(let message)) = result else {
+            Issue.record("英語ターゲットで保護語の消失が検出されなかった: \(result)")
+            return
+        }
+        #expect(message.contains("Claude Code"))
+    }
+
+    @Test("英語ターゲットでも頭字語の消失は拒否する")
+    func englishTargetStillValidatesAcronyms() {
+        let result = ConversionOutputValidator.validate(
+            output: "Swift is a good language",
+            source: "SWIFThaiigengodesu",
+            settings: .default,
+            target: .english
+        )
+        guard case .failure(.generationFailed(let message)) = result else {
+            Issue.record("英語ターゲットで頭字語の消失が検出されなかった: \(result)")
+            return
+        }
+        #expect(message.contains("SWIFT"))
+    }
+
+    @Test("英語ターゲットでも空出力の拒否と前後改行の trim は共通で適用される")
+    func englishTargetSharesCommonValidation() {
+        let empty = ConversionOutputValidator.validate(
+            output: " \n",
+            source: "kyou",
+            settings: .default,
+            target: .english
+        )
+        #expect(empty == .failure(.emptyResponse))
+        let trimmed = ConversionOutputValidator.validate(
+            output: "\nToday\n",
+            source: "kyou",
+            settings: .default,
+            target: .english
+        )
+        #expect(trimmed == .success("Today"))
+    }
+
+    @Test("英語ターゲットでも膨張率の上限超過は拒否される")
+    func englishTargetSharesExpansionLimit() {
+        var settings = ConversionSettings.default
+        settings.maximumExpansionRatio = 1.0
+        let source = "abcd"
+        let limit = source.utf16.count + ConversionOutputValidator.fixedAllowance
+        let tooLong = String(repeating: "a", count: limit + 1)
+        let rejected = ConversionOutputValidator.validate(
+            output: tooLong,
+            source: source,
+            settings: settings,
+            target: .english
+        )
+        guard case .failure(.generationFailed(let message)) = rejected else {
+            Issue.record("英語ターゲットで膨張率超過が拒否されなかった: \(rejected)")
+            return
+        }
+        #expect(message.contains("長すぎます"))
+    }
 }
