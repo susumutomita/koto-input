@@ -1,6 +1,10 @@
 # Koto
 
-Koto は、ローマ字・英語・日本語の混在テキストを自然な日本語へ変換する macOS 用入力メソッド。`Ctrl + Shift + 言語キー` を押すと、同じテキストを英語・中国語（簡体字）・韓国語・フランス語・ドイツ語・スペイン語へ翻訳変換する。変換には macOS 組み込みのオンデバイスモデル（Apple Intelligence の FoundationModels framework）を使う。Claude Code や Codex CLI などのターミナルアプリへ送信する前のテキストを、composition バッファ内で変換する。
+[![CI](https://github.com/susumutomita/koto-input/actions/workflows/ci.yml/badge.svg)](https://github.com/susumutomita/koto-input/actions/workflows/ci.yml)
+
+Koto は、ローマ字・英語・日本語の混在テキストを自然な日本語へ変換する macOS 用入力メソッド。`Ctrl + Shift + 言語キー` を押すと、同じテキストを英語・中国語（簡体字）・韓国語・フランス語・ドイツ語・スペイン語へ翻訳変換する。変換に使う AI は macOS 組み込みのオンデバイスモデル（Apple Intelligence の FoundationModels framework）だけで、クラウドや外部の AI サービスには接続しない。Claude Code や Codex CLI は変換に使う AI ではなく「入力先」の例で、これらのターミナルアプリへ送信する前のテキストを composition バッファ内で変換する。
+
+> Koto is an on-device AI input method for macOS. Type romaji anywhere, then convert it into natural Japanese — or into English and 5 other languages — using Apple Intelligence. No cloud, no logging.
 
 入力例。
 
@@ -20,9 +24,13 @@ kono authentication no sekinin han'i ga aimai dakara application layer dake de c
 This authentication design has ambiguous responsibility boundaries, so checking only at the application layer is risky.
 ```
 
+## なぜ Koto か
+
+ターミナルで Claude Code や Codex CLI に指示を書くとき、従来の日本語 IME には不便が多い。スペースで変換候補が割り込み、Enter の確定がそのままプロンプト送信になり、技術用語やコマンド名が勝手にかな漢字へ変換される。Koto は変換・確定・送信を分離し、AI への指示を書く流れを壊さないことを最優先に設計した入力メソッド。変換は明示的なキー（`Shift + Space` など）を押したときだけ起き、`Claude Code` のような保護語やコマンド名は原文のまま残る。
+
 ## 特徴
 
-- 変換はデバイス上で完結し、入力テキストを外部サービスへ送信しない。
+- 変換はデバイス上で完結し、入力テキストを外部サービスへ送信しない。変換エンジンは Apple のオンデバイスモデルのみで、OpenAI / Codex 等の外部 AI は使わない。
 - 変換と送信が分離しており、`Shift + Space` は変換だけを行う。
 - `Ctrl + Shift + 言語キー` で 6 言語への翻訳変換ができる。打った場所にそのまま訳文が入る。
 - Escape で変換前のテキストへ戻せる。
@@ -166,13 +174,13 @@ make before-commit  # コミット前チェック（harness + textlint + lint）
 
 ## サプライチェイン防御
 
-このテンプレートは Shai-Hulud 系（[Flatt Security の解説](https://blog.flatt.tech/entry/mini_shai_hulud_2nd)）のサプライチェイン攻撃を多層で防ぐデフォルト値を持つ。
+このリポジトリは Shai-Hulud 系（[Flatt Security の解説](https://blog.flatt.tech/entry/mini_shai_hulud_2nd)）のサプライチェイン攻撃を多層で防ぐデフォルト値を持つ。
 
 - `make install` / `make install_ci` は常に `--ignore-scripts` を付ける。**Bun は `.npmrc` の `ignore-scripts` も `npm_config_ignore_scripts` 環境変数も読まない**（公式 docs では `bunfig.toml` のみが設定経路）ため、Bun を叩くコマンド側で毎回明示する必要がある。husky の `prepare` も巻き添えで止まるので `make setup-hooks` で明示的に opt-in する。
 - `bunfig.toml` の `trustedDependencies = []` で、Bun がデフォルトで信頼する「top 500 npm パッケージ」の lifecycle script もゼロにする。
 - `make before-commit` が走らせる `architecture-harness` が、Git URL 依存・lifecycle hook の濫用・IOC ファイル名・ロックファイル内の Git 解決を機械的に検出する（`INVARIANT_NO_GIT_DEPENDENCY` / `INVARIANT_LIFECYCLE_HOOK_SCOPED` / `INVARIANT_NO_KNOWN_IOC` / `INVARIANT_LOCKFILE_NO_GIT_RESOLUTION`）。
 - CI は `safe-chain` + 上記設定で重ねる。
-- `.npmrc` は **意図的に置かない**。Bun は読まないので Bun の防御には寄与せず、「効いていそうで効いていない」security theater になるため。本テンプレートは Bun 専用。pnpm/npm/yarn を併用する派生プロジェクトは自分で `.npmrc` を足す。
+- `.npmrc` は **意図的に置かない**。Bun は読まないので Bun の防御には寄与せず、「効いていそうで効いていない」security theater になるため。このリポジトリの開発ツールは Bun 専用。pnpm/npm/yarn を併用する場合は自分で `.npmrc` を足す。
 
 設計判断の正本は [ADR-0001](./docs/adr/0001-supply-chain-hardening.md)、invariant 一覧は [docs/architecture/harness.md](./docs/architecture/harness.md) を参照。
 

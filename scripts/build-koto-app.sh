@@ -52,5 +52,7 @@ if [[ "${1:-}" == "--install" ]]; then
 3. メニューバーの入力ソースから Koto を選択
 GUIDE
 else
-  echo "完了: $APP_DIR（インストールするには --install を付けて再実行）"
+  # 変数の直後に全角文字を続けると bash が変数名の境界を誤判定して
+  # unbound variable になる（v1.0.0 の release 失敗の原因）。必ず ${} で囲む。
+  echo "完了: ${APP_DIR}（インストールするには --install を付けて再実行）"
 fi
