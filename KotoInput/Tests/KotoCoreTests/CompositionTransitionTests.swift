@@ -9,30 +9,27 @@ struct CompositionTransitionTests {
         CompositionTransition.reduce(.idle(), .insert(text)).state
     }
 
+    /// 変換要求コマンド（既定は通常の日本語変換。英語は
+    /// `via: .requestConversion(.english)`、文脈つきは
+    /// `via: .requestContextualConversion`）を発行した converting 状態。
     private func converting(
         _ text: String,
-        target: ConversionTarget = .japanese
+        via command: CompositionCommand = .requestConversion(.japanese)
     ) -> CompositionState {
         CompositionTransition.reduce(
             compose(text),
-            .requestConversion(target),
+            command,
             makeRequestID: { fixedRequestID }
         ).state
     }
 
-    /// 変換要求コマンド（既定は通常の日本語変換。文脈つき変換は
-    /// `via: .requestContextualConversion`）を経由した converted 状態。
+    /// converting と同じコマンドを経由して変換を成功させた converted 状態。
     private func converted(
         source: String,
         convertedText: String,
-        target: ConversionTarget = .japanese,
-        via command: CompositionCommand? = nil
+        via command: CompositionCommand = .requestConversion(.japanese)
     ) -> CompositionState {
-        let before = CompositionTransition.reduce(
-            compose(source),
-            command ?? .requestConversion(target),
-            makeRequestID: { fixedRequestID }
-        ).state
+        let before = converting(source, via: command)
         let result = ConversionResult(
             requestID: fixedRequestID,
             compositionID: before.compositionID,
@@ -221,7 +218,7 @@ struct CompositionTransitionTests {
         let state = converted(
             source: "kyouhaiihida",
             convertedText: "Today is a good day",
-            target: .english
+            via: .requestConversion(.english)
         )
         let retryID = ConversionRequestID()
         let outcome = CompositionTransition.reduce(
@@ -251,7 +248,7 @@ struct CompositionTransitionTests {
         let state = converted(
             source: "kyouhaiihida",
             convertedText: "Today is a good day",
-            target: .english
+            via: .requestConversion(.english)
         )
         let requestID = ConversionRequestID()
         // Shift + Space で日本語変換へ戻すケース。
@@ -321,7 +318,7 @@ struct CompositionTransitionTests {
         let state = converted(
             source: "kyouhaiihida",
             convertedText: "Today is a good day",
-            target: .english
+            via: .requestConversion(.english)
         )
         let outcome = CompositionTransition.reduce(state, .restoreSource)
         #expect(outcome.state.phase == .composing)
@@ -334,7 +331,7 @@ struct CompositionTransitionTests {
         let state = converted(
             source: "kyouhaiihida",
             convertedText: "Today is a good day",
-            target: .english
+            via: .requestConversion(.english)
         )
         let retried = CompositionTransition.reduce(state, .requestConversion(.english)).state
         #expect(retried.retryCount == 1)

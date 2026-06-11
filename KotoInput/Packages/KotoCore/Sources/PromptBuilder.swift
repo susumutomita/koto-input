@@ -247,17 +247,7 @@ public enum PromptBuilder {
     /// 供給元（SessionContextStore）の正規化への遠隔依存ではなく、信頼境界で
     /// あるこの整形で保証する（将来の別の文脈供給源にもそのまま効く）。
     static func bulletList(_ items: [String]) -> String {
-        items
-            .map { item in
-                "- "
-                    + item
-                    .split(
-                        omittingEmptySubsequences: true,
-                        whereSeparator: { $0.isNewline }
-                    )
-                    .joined(separator: " ")
-            }
-            .joined(separator: "\n")
+        items.map { "- " + $0.collapsedToSingleLine }.joined(separator: "\n")
     }
 
     static func styleInstruction(_ style: WritingStyle) -> String {

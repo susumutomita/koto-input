@@ -152,43 +152,47 @@ struct MultilingualQualityFixtureTests {
     @Test("context つきケースは非空・各 entry が store 上限以内・文脈なしケースとペアで収録される")
     func contextCasesHonorPairContract() throws {
         let fixtures = try loadFixtures()
-        let ids = Set(fixtures.map(\.id))
         let withSuffix = "-with-context"
         let withoutSuffix = "-without-context"
 
-        var withContextCount = 0
+        // 契約の核: id 接尾辞 -with-context ⟺ context フィールドの存在。
+        // （-without-context は -with-context を接尾辞に持たないため、
+        // この同値だけで「文脈なしケースに context が無い」ことも含意する。）
         for fixture in fixtures {
-            // 契約の核: id 接尾辞 -with-context ⟺ context フィールドの存在。
-            // （-without-context は -with-context を接尾辞に持たないため、
-            // この同値だけで「文脈なしケースに context が無い」ことも含意する。）
             #expect(
                 (fixture.context != nil) == fixture.id.hasSuffix(withSuffix),
                 "id 接尾辞 \(withSuffix) と context の有無が一致しない: \(fixture.id)"
             )
-            if let context = fixture.context {
-                withContextCount += 1
-                #expect(!context.isEmpty, "context が空配列: \(fixture.id)")
-                for entry in context {
-                    // 上限の正本は store の予算定数。注入され得ない長さの
-                    // context をフィクスチャに持ち込ませない。
-                    #expect(
-                        entry.utf16.count <= SessionContextStore.maxTotalUTF16Length,
-                        "context entry が上限（UTF-16 長）超: \(fixture.id)"
-                    )
-                    #expect(
-                        !entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                        "context entry が空白のみ: \(fixture.id)"
-                    )
-                }
-                let pairID = String(fixture.id.dropLast(withSuffix.count)) + withoutSuffix
-                #expect(ids.contains(pairID), "文脈なしペア \(pairID) が無い: \(fixture.id)")
-            } else if fixture.id.hasSuffix(withoutSuffix) {
-                let pairID = String(fixture.id.dropLast(withoutSuffix.count)) + withSuffix
-                #expect(ids.contains(pairID), "文脈ありペア \(pairID) が無い: \(fixture.id)")
+        }
+
+        // ペアは base ID（接尾辞を除いた部分）の集合一致で双方向に検証する。
+        func bases(suffix: String) -> Set<String> {
+            Set(
+                fixtures.filter { $0.id.hasSuffix(suffix) }
+                    .map { String($0.id.dropLast(suffix.count)) }
+            )
+        }
+        let withBases = bases(suffix: withSuffix)
+        #expect(withBases == bases(suffix: withoutSuffix))
+        // 文脈あり / なしのペアが 2 組以上収録されている（仕様の評価方針）。
+        #expect(withBases.count >= 2)
+
+        for fixture in fixtures {
+            guard let context = fixture.context else { continue }
+            #expect(!context.isEmpty, "context が空配列: \(fixture.id)")
+            for entry in context {
+                // 上限の正本は store の予算定数。注入され得ない長さの
+                // context をフィクスチャに持ち込ませない。
+                #expect(
+                    entry.utf16.count <= SessionContextStore.maxTotalUTF16Length,
+                    "context entry が上限（UTF-16 長）超: \(fixture.id)"
+                )
+                #expect(
+                    !entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    "context entry が空白のみ: \(fixture.id)"
+                )
             }
         }
-        // 文脈あり / なしのペアが 2 組以上収録されている（仕様の評価方針）。
-        #expect(withContextCount >= 2)
     }
 
     @Test("rejectedOutputs は validator が必ず拒否する")

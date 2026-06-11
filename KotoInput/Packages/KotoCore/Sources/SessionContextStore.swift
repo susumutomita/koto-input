@@ -35,8 +35,7 @@ public final class SessionContextStore {
             return
         }
         let normalized = text
-            .split(omittingEmptySubsequences: true, whereSeparator: { $0.isNewline })
-            .joined(separator: " ")
+            .collapsedToSingleLine
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return }
         let entry = truncated(normalized)

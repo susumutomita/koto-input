@@ -607,7 +607,8 @@ Issue 46（https://github.com/susumutomita/koto-input/issues/46 ）の実装。c
 - [x] InputController: Ctrl+Shift+Space ルーティング（OFF なら未消費）
 - [x] フィクスチャ: context フィールド + 文脈あり/なしペア 2 組以上 + スキーマ契約拡張
 - [x] 5 役割成果物（pm-review / design / test-plan / user-feedback）
-- [ ] ゲート（harness / before-commit / review / security-review / simplify）→ コミット → push → draft PR → CI green
+- [x] ゲート（harness / before-commit / review / security-review / simplify）
+- [ ] コミット → push → draft PR → CI green
 
 #### 検証手順
 
@@ -622,3 +623,4 @@ Issue 46（https://github.com/susumutomita/koto-input/issues/46 ）の実装。c
 - 2026-06-11: Developer 実装完了（TDD: テスト先行）。新規 `SessionContextStore` + `SessionContextStoreTests`、`ConversionSettings.contextMemoryEnabled`（decodeIfPresent ?? false）、`CompositionCommand.requestContextualConversion`、`CompositionState.conversionUsedContext`、`Effect.startConversion` へ `useContext` 追加（attempt 同一性判定キー = target + useContext）、`ConversionRequest.contextEntries`、coordinator の commit 遅延追記（Task / hot path 外）と OFF 時クリア、`PromptBuilder.prompt(modelInput:contextEntries:)` と日本語 instructions の [CONTEXT] 固定行、provider のプロンプト経路、InputController の Ctrl+Shift+Space（OFF なら未消費）と repository プロパティ化、フィクスチャ context ペア 2 組 + 契約テスト、README（キー表・設定表・プライバシー）。Swift toolchain が無いため、コンパイル検証は CI の swift ジョブで行う。
 - 2026-06-11: 統合レビューで 5 役割の申し送りを反映。(1) 候補重複なしテスト（文脈が結果を変えないケース）と [INPUT] リテラルの構造偽装防御テストを追加。(2) instructions の [CONTEXT] 固定行を「Return only the converted text.」の前へ移動（締めの指示を最後に保つ）。(3) README に設定 typo の無反応切り分け（defaults read）・膨張率調整ガイド・OFF→ON 残存の既知の制限を追記。(4) terminal-compatibility.md に JetBrains Smart Type Completion 衝突と Issue 46 の E2E シナリオ 6 手順を追記。(5) OFF→ON 残存穴（ポーリングでは遷移を観測不能）をフォローアップ F-69SKVN として記録。
 - 2026-06-11: コードレビュー（7 finder 並列）の確定指摘を反映。正確性: recordCommittedText の [weak self] を store/repository 直接捕捉へ（deactivate 直後の解放で commit 収集が落ちる）、巨大単一書記素の切り詰めで空エントリが混入するのを切り詰め後ガードで防止、request 構築（設定ロード + snapshot）を変換 Task 内へ移動（MainActor ジョブの FIFO で「commit 直後の文脈つき変換にその commit が含まれる」を決定論化 + 同期キーパスから JSON decode を除去）、essentialFlags に .capsLock 除外を追加（Caps Lock 中に全変換キーが不一致になる既存バグ）、OFF 消去を全変換要求にも拡張して README の記述と一致。品質: OFF ゲートの正本を store 入口（append/snapshot の enabled 引数）へ一本化、PromptBuilder.bulletList を切り出し信頼境界で改行正規化（[CONTEXT] 構造偽装防御の正本を移設）、provider で japanese 以外への文脈注入を遮断、prompt オーバーロードを既定引数に統合、Ctrl+Shift+Space のガード順（composing 先行）、FIFO ループの合計長を差分更新化、テストヘルパー統合（converted へ via 引数 / FixedSettingsRepository を MutableSettingsRepository へ統合）、フィクスチャ契約を単一ループ + store 定数参照へ。フォローアップ: F-PKTPY4（converting 中再押下で候補消失・既存バグ）、F-2SCPV7（attempt キー値型化）。
+- 2026-06-11: /security-review は High/Medium 検出なし（opt-in の fail-closed・テキストの非永続/非送信・[CONTEXT] 偽装防御・プロセス共有 store の境界を確認）。/simplify（4 角度）を実施し、改行正規化を String.collapsedToSingleLine（KotoCore 共有ヘルパー）へ集約、coordinator の commit 判定を committedText 単独条件へ、テストの converting/converted を単一の via ノブへ統合（英語系 4 呼び出し更新）、フィクスチャのペア検査を base ID の Set 比較へ。running total の差し戻しとテストセットアップ共通化・received* 配列統合は判断つきでスキップ。設計深度の残課題は F-D36AHW として記録。

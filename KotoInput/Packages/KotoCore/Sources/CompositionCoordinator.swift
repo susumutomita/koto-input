@@ -64,9 +64,10 @@ public final class CompositionCoordinator {
             prewarmProvider()
         }
         renderer(outcome.view)
-        if outcome.view.shouldCommit, let committed = outcome.view.committedText {
-            // Enter commit と deactivate 由来の commit の両方が収集対象
-            // （ADR-0013）。描画後に遅延タスクで行い、hot path には入れない。
+        // committedText 非 nil ⟺ shouldCommit（commit 遷移だけが設定する）。
+        // Enter commit と deactivate 由来の commit の両方が収集対象
+        // （ADR-0013）。描画後に遅延タスクで行い、hot path には入れない。
+        if let committed = outcome.view.committedText {
             recordCommittedText(committed)
         }
     }
