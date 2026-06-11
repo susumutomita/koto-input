@@ -20,6 +20,11 @@ public struct CompositionState: Equatable, Sendable {
     /// 直近の変換要求のターゲット言語。converted からの再要求が同じ target
     /// なら再抽選（attempt + 1）、別の target なら attempt 0 で変換し直す。
     public var conversionTarget: ConversionTarget
+    /// 直近の変換要求が文脈つき（requestContextualConversion）だったか。
+    /// attempt の同一性判定キーは（target, useContext）の組で、Shift + Space
+    /// と Ctrl + Shift + Space を交互に押すとそれぞれ attempt 0 の greedy
+    /// から始まる（ADR-0013）。
+    public var conversionUsedContext: Bool
     /// 現在の原文スナップショットに対して蓄積された変換候補（検証通過済み）。
     /// converted からの再変換要求（同 target 再抽選・別 target 切替）では
     /// 蓄積を継続し、スナップショットを壊す編集・cancel・commit・
@@ -45,6 +50,7 @@ public struct CompositionState: Equatable, Sendable {
         isSourcePreserved: Bool,
         retryCount: Int = 0,
         conversionTarget: ConversionTarget = .japanese,
+        conversionUsedContext: Bool = false,
         candidates: [ConversionCandidate] = [],
         selectedCandidateIndex: Int? = nil,
         kanaCycleForm: KanaForm? = nil
@@ -59,6 +65,7 @@ public struct CompositionState: Equatable, Sendable {
         self.isSourcePreserved = isSourcePreserved
         self.retryCount = retryCount
         self.conversionTarget = conversionTarget
+        self.conversionUsedContext = conversionUsedContext
         self.candidates = candidates
         self.selectedCandidateIndex = selectedCandidateIndex
         self.kanaCycleForm = kanaCycleForm

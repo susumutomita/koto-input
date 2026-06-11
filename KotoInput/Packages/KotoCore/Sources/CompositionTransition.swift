@@ -7,13 +7,16 @@ public enum CompositionTransition {
         /// 実行中の変換タスクをキャンセルする。
         case cancelConversion
         /// 既存タスクをキャンセルした上で新しい変換を開始する。
-        /// attempt は同じ原文・同じ target に対する再変換（候補の再抽選）の回数。
+        /// attempt は同じ原文・同じ（target, useContext）に対する再変換
+        /// （候補の再抽選）の回数。useContext はセッション内文脈メモリを
+        /// [CONTEXT] として付与する文脈つき変換（ADR-0013）。
         case startConversion(
             requestID: ConversionRequestID,
             compositionID: CompositionID,
             revision: UInt64,
             sourceText: String,
             target: ConversionTarget,
+            useContext: Bool,
             attempt: Int
         )
     }
@@ -59,6 +62,14 @@ public enum CompositionTransition {
             return moveCursor(state, offset: offset)
         case .requestConversion(let target):
             return requestConversion(state, target: target, makeRequestID: makeRequestID)
+        case .requestContextualConversion:
+            // 第一版の文脈つき変換は日本語 target のみ（ADR-0013）。
+            return requestConversion(
+                state,
+                target: .japanese,
+                useContext: true,
+                makeRequestID: makeRequestID
+            )
         case .normalizeToKana:
             return normalizeToKana(state, protectedTerms: protectedTerms)
         case .selectCandidate(let offset):
@@ -210,6 +221,7 @@ public enum CompositionTransition {
     private static func requestConversion(
         _ state: CompositionState,
         target: ConversionTarget,
+        useContext: Bool = false,
         makeRequestID: () -> ConversionRequestID
     ) -> Outcome {
         let trimmed = state.displayedText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -220,8 +232,9 @@ public enum CompositionTransition {
         }
         // converted から編集せずに再要求された場合は、原文スナップショットから
         // 変換し直し、表示も原文へ戻す（タイプ先行の prefix 整合を保つため）。
-        // 同じ target なら「再変換（候補の再抽選）」として attempt を増やし、
-        // 別の target なら attempt 0 からその言語へ変換し直す。
+        // 同じ（target, useContext）なら「再変換（候補の再抽選）」として
+        // attempt を増やし、別の組なら attempt 0 から変換し直す（文脈の有無で
+        // プロンプトが変わるため、別経路として greedy から始める。ADR-0013）。
         // Escape の復元先は常に原文のまま。
         let isReconversionFromSnapshot: Bool = {
             if case .converted = state.phase, state.isSourcePreserved {
@@ -236,9 +249,12 @@ public enum CompositionTransition {
         // AI 変換に入ったらかな形態巡回は終わる（次の Tab はひらがな化から）。
         next.kanaCycleForm = nil
         if isReconversionFromSnapshot {
-            // 同一スナップショットへの再要求（再抽選・target 切替）は候補の
-            // 蓄積を継続する（日本語と英語の候補が共存できる）。
-            next.retryCount = target == state.conversionTarget ? state.retryCount + 1 : 0
+            // 同一スナップショットへの再要求（再抽選・target 切替・文脈の
+            // 有無切替）は候補の蓄積を継続する（候補が共存できる）。
+            let isSameAttemptKey =
+                target == state.conversionTarget
+                && useContext == state.conversionUsedContext
+            next.retryCount = isSameAttemptKey ? state.retryCount + 1 : 0
             next.displayedText = state.sourceText
             next.selection = .cursor(at: state.sourceText.utf16.count)
         } else {
@@ -250,6 +266,7 @@ public enum CompositionTransition {
             next.selectedCandidateIndex = nil
         }
         next.conversionTarget = target
+        next.conversionUsedContext = useContext
         next.isSourcePreserved = true
         next.activeRequestRevision = next.revision
         return Outcome(
@@ -260,6 +277,7 @@ public enum CompositionTransition {
                 revision: next.revision,
                 sourceText: next.sourceText,
                 target: target,
+                useContext: useContext,
                 attempt: next.retryCount
             ),
             view: .from(state: next)

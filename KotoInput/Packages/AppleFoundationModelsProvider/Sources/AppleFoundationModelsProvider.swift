@@ -103,8 +103,15 @@ public actor AppleFoundationModelsProvider: TextConversionProvider {
             target: request.target
         )
         // モデルへはかな化済み入力（modelInputText）を渡す。表示・Escape 復元・
-        // 出力検証は元の sourceText が基準のまま（ADR-0006）。
-        let prompt = PromptBuilder.prompt(modelInput: request.modelInputText)
+        // 出力検証は元の sourceText が基準のまま（ADR-0006）。セッション内
+        // 文脈（ADR-0013）は instructions ではなくユーザープロンプト側の
+        // [CONTEXT] に載せ、prewarm を無効化しない。[CONTEXT] の取り扱い指示を
+        // 持つのは日本語 instructions のみ（第一版）なので、指示を持たない
+        // 翻訳 instructions に文脈を注入しないことをここでも強制する。
+        let prompt = PromptBuilder.prompt(
+            modelInput: request.modelInputText,
+            contextEntries: request.target == .japanese ? request.contextEntries : []
+        )
         do {
             // target に対応する prewarm 済みセッションがあれば 1 回だけ使う。
             // 無ければその場で作る。どちらも使い捨てで、transcript を次の
