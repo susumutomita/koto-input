@@ -28,6 +28,12 @@ public struct ConversionSettings: Equatable, Sendable, Codable {
     public var maximumExpansionRatio: Double
     /// 多言語出力のトーンプロファイル。日本語変換には適用しない（ADR-0010）。
     public var outputProfile: OutputProfile
+    /// アプリ別多言語出力プリセット（ADR-0011）。appAwarePresetsEnabled が
+    /// true のときのみ実効になる（effectivePreset を参照）。
+    public var outputPreset: OutputPreset
+    /// アプリ連動プリセットの明示的な opt-in（ADR-0011）。アプリ検出は
+    /// 未実装で、false（既定）の間はプリセットを一切適用しない。
+    public var appAwarePresetsEnabled: Bool
 
     /// 保護語のサニタイズ規則（前後の空白を trim し、空要素を除く）の正本。
     /// raw な配列を受け取る呼び出し側（RomajiKanaConverter 等）もこれを使い、
@@ -44,18 +50,39 @@ public struct ConversionSettings: Equatable, Sendable, Codable {
         Self.sanitizeProtectedTerms(protectedTerms)
     }
 
+    /// プリセットの実効値（ADR-0011）。アプリ連動は明示的な opt-in であり、
+    /// appAwarePresetsEnabled が false の間は常に .standard（プリセット不活性）。
+    /// アプリ検出は未実装で、有効時もユーザーが選択したプリセットのみを使う。
+    public var effectivePreset: OutputPreset {
+        appAwarePresetsEnabled ? outputPreset : .standard
+    }
+
+    /// 多言語出力で実際に使うトーンプロファイル（ADR-0011）。プリセットが
+    /// 実効でない（.standard）間は従来どおり outputProfile を使い、プリセット
+    /// 適用時のみプリセットが束ねるプロファイルを優先する。プリセット未使用
+    /// ユーザーの outputProfile 設定を壊さないための優先規則で、PromptBuilder
+    /// の [STYLE] はこちらを参照する。
+    public var effectiveProfile: OutputProfile {
+        let preset = effectivePreset
+        return preset == .standard ? outputProfile : preset.profile
+    }
+
     public init(
         style: WritingStyle = .neutral,
         customInstruction: String = "",
         protectedTerms: [String] = ConversionSettings.defaultProtectedTerms,
         maximumExpansionRatio: Double = 4.0,
-        outputProfile: OutputProfile = .neutral
+        outputProfile: OutputProfile = .neutral,
+        outputPreset: OutputPreset = .standard,
+        appAwarePresetsEnabled: Bool = false
     ) {
         self.style = style
         self.customInstruction = customInstruction
         self.protectedTerms = protectedTerms
         self.maximumExpansionRatio = maximumExpansionRatio
         self.outputProfile = outputProfile
+        self.outputPreset = outputPreset
+        self.appAwarePresetsEnabled = appAwarePresetsEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -64,12 +91,15 @@ public struct ConversionSettings: Equatable, Sendable, Codable {
         case protectedTerms
         case maximumExpansionRatio
         case outputProfile
+        case outputPreset
+        case appAwarePresetsEnabled
     }
 
-    /// 後方互換の decode（ADR-0010）。既存フィールドは従来どおり必須のまま、
-    /// outputProfile はフィールドが無い旧 JSON でも既定値で成功させる。
-    /// 未知の文字列値（将来のプロファイル等）は失敗ではなく .neutral へ
-    /// 決定論的にフォールバックし、設定全体が default へ巻き戻るのを防ぐ。
+    /// 後方互換の decode（ADR-0010・ADR-0011）。既存フィールドは従来どおり
+    /// 必須のまま、outputProfile / outputPreset / appAwarePresetsEnabled は
+    /// フィールドが無い旧 JSON でも既定値で成功させる。未知の文字列値
+    /// （将来のプロファイル・プリセット等）は失敗ではなく既定値へ決定論的に
+    /// フォールバックし、設定全体が default へ巻き戻るのを防ぐ。
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         style = try container.decode(WritingStyle.self, forKey: .style)
@@ -84,6 +114,16 @@ public struct ConversionSettings: Equatable, Sendable, Codable {
             forKey: .outputProfile
         )
         outputProfile = rawProfile.flatMap(OutputProfile.init(rawValue:)) ?? .neutral
+        let rawPreset = try container.decodeIfPresent(
+            String.self,
+            forKey: .outputPreset
+        )
+        outputPreset = rawPreset.flatMap(OutputPreset.init(rawValue:)) ?? .standard
+        appAwarePresetsEnabled =
+            try container.decodeIfPresent(
+                Bool.self,
+                forKey: .appAwarePresetsEnabled
+            ) ?? false
     }
 
     public static let defaultProtectedTerms: [String] = [

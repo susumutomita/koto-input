@@ -285,6 +285,103 @@ struct PromptBuilderTests {
         #expect(instructions.contains("protected terms verbatim"))
         #expect(instructions.contains("[PROTECTED_TERMS]"))
     }
+
+    // MARK: - OutputPreset と [STYLE]（ADR-0011）
+
+    private func presetSettings(
+        _ preset: OutputPreset,
+        enabled: Bool = true,
+        profile: OutputProfile = .neutral
+    ) -> ConversionSettings {
+        var settings = ConversionSettings.default
+        settings.outputPreset = preset
+        settings.appAwarePresetsEnabled = enabled
+        settings.outputProfile = profile
+        return settings
+    }
+
+    @Test(
+        "有効なプリセットは束ねたプロファイルと追加指示を [STYLE] に反映する",
+        arguments: [
+            (OutputPreset.chat, "チャット向けの気さくな文体"),
+            (OutputPreset.email, "ビジネス文書として適切な文体"),
+            (OutputPreset.codeReview, "技術文書として用語の正確さを優先"),
+            (OutputPreset.agentPrompt, "技術文書として用語の正確さを優先"),
+        ]
+    )
+    func enabledPresetShapesStyleSection(
+        preset: OutputPreset,
+        expectedProfileFragment: String
+    ) throws {
+        let presetInstruction = try #require(preset.presetInstruction)
+        let instructions = PromptBuilder.instructions(
+            settings: presetSettings(preset),
+            target: .english
+        )
+        #expect(instructions.contains("[STYLE]"))
+        #expect(instructions.contains(expectedProfileFragment))
+        #expect(instructions.contains(presetInstruction))
+    }
+
+    @Test("standard プリセットは追加指示を持たず outputProfile の STYLE を使い続ける")
+    func standardPresetKeepsOutputProfileStyle() {
+        let instructions = PromptBuilder.instructions(
+            settings: presetSettings(.standard, profile: .polite),
+            target: .english
+        )
+        #expect(instructions.contains("丁寧で礼儀正しい文体"))
+    }
+
+    @Test("appAwarePresetsEnabled が false ならどのプリセットでも翻訳 instructions は同一")
+    func disabledPresetLeavesInstructionsUntouched() {
+        let baseline = PromptBuilder.instructions(
+            settings: presetSettings(.standard, enabled: false, profile: .business),
+            target: .english
+        )
+        for preset in OutputPreset.allCases {
+            let instructions = PromptBuilder.instructions(
+                settings: presetSettings(preset, enabled: false, profile: .business),
+                target: .english
+            )
+            #expect(instructions == baseline)
+        }
+    }
+
+    @Test("プリセット有効時は束ねたプロファイルが outputProfile より優先される")
+    func presetBundleOverridesOutputProfile() {
+        let instructions = PromptBuilder.instructions(
+            settings: presetSettings(.chat, profile: .business),
+            target: .english
+        )
+        #expect(instructions.contains("チャット向けの気さくな文体"))
+        #expect(!instructions.contains("ビジネス文書として適切な文体"))
+    }
+
+    @Test("プリセットと opt-in フラグを変えても日本語 instructions は一字一句変わらない")
+    func presetDoesNotAffectJapaneseInstructions() {
+        let baseline = PromptBuilder.instructions(settings: .default, target: .japanese)
+        for preset in OutputPreset.allCases {
+            for enabled in [false, true] {
+                let instructions = PromptBuilder.instructions(
+                    settings: presetSettings(preset, enabled: enabled),
+                    target: .japanese
+                )
+                #expect(instructions == baseline)
+            }
+        }
+    }
+
+    @Test("プリセット有効時も PROTECTED_TERMS セクションは変わらない")
+    func presetKeepsProtectedTermsSection() {
+        let instructions = PromptBuilder.instructions(
+            settings: presetSettings(.codeReview),
+            target: .english
+        )
+        #expect(instructions.contains("[PROTECTED_TERMS]"))
+        for term in ConversionSettings.defaultProtectedTerms {
+            #expect(instructions.contains("- \(term)"))
+        }
+    }
 }
 
 @Suite("ConversionRequest のモデル入力")

@@ -70,6 +70,8 @@ public enum CompositionTransition {
                 )
                 return (kana, .cursor(at: kana.utf16.count))
             }
+        case .selectCandidate(let offset):
+            return selectCandidate(state, offset: offset)
         case .conversionSucceeded(let result):
             return conversionSucceeded(state, result: result)
         case .conversionFailed(let requestID, let compositionID, let revision, let error):
@@ -142,6 +144,10 @@ public enum CompositionTransition {
         }
         next.phase = .composing
         next.activeRequestRevision = nil
+        // スナップショットの文脈を離れる編集では、蓄積した候補は表示と
+        // 対応しなくなるためクリアする（タイプ先行の継続中は保持される）。
+        next.candidates = []
+        next.selectedCandidateIndex = nil
         if !next.isSourcePreserved {
             // 変換前の素の入力中は、復元対象 = 現在のテキスト。
             next.sourceText = text
@@ -194,14 +200,18 @@ public enum CompositionTransition {
         next.revision &+= 1
         next.phase = .converting(requestID: requestID)
         if isReconversionFromSnapshot {
+            // 同一スナップショットへの再要求（再抽選・target 切替）は候補の
+            // 蓄積を継続する（日本語と英語の候補が共存できる）。
             next.retryCount = target == state.conversionTarget ? state.retryCount + 1 : 0
             next.displayedText = state.sourceText
             next.selection = .cursor(at: state.sourceText.utf16.count)
         } else {
             // Escape 用のスナップショット。編集後の変換では編集後のテキストが
-            // 新しい復元対象になる。
+            // 新しい復元対象になり、旧スナップショットの候補は破棄される。
             next.sourceText = state.displayedText
             next.retryCount = 0
+            next.candidates = []
+            next.selectedCandidateIndex = nil
         }
         next.conversionTarget = target
         next.isSourcePreserved = true
@@ -243,15 +253,35 @@ public enum CompositionTransition {
             next.displayedText = result.convertedText
             next.selection = .cursor(at: result.convertedText.utf16.count)
             next.phase = .converted(requestID: requestID)
+            // 検証通過済みの結果だけが候補になる。state の conversionTarget /
+            // retryCount は stale 照合を通過したこの結果の要求時の値なので、
+            // そのまま候補のメタデータとして使える。同一 text + target の候補が
+            // 既にあれば重複追加せず、その候補を選択し直す。
+            let candidate = ConversionCandidate(
+                text: result.convertedText,
+                target: state.conversionTarget,
+                attempt: state.retryCount
+            )
+            if let existing = next.candidates.firstIndex(where: {
+                $0.text == candidate.text && $0.target == candidate.target
+            }) {
+                next.selectedCandidateIndex = existing
+            } else {
+                next.candidates.append(candidate)
+                next.selectedCandidateIndex = next.candidates.count - 1
+            }
         } else {
             // タイプ先行中: スナップショット部分だけを変換結果へ差し替え、
             // 追記分（tail）はそのまま保持する。追記分を失わないことを優先し、
-            // splice 後は Escape での復元を無効化する。
+            // splice 後は Escape での復元を無効化する。スナップショットが
+            // 変わるため、旧スナップショットの候補は破棄する。
             let spliced = result.convertedText + tail
             next.displayedText = spliced
             next.phase = .composing
             next.isSourcePreserved = false
             next.sourceText = spliced
+            next.candidates = []
+            next.selectedCandidateIndex = nil
             let snapshotLength = state.sourceText.utf16.count
             let delta = result.convertedText.utf16.count - snapshotLength
             let shifted =
@@ -312,6 +342,8 @@ public enum CompositionTransition {
                 next.activeRequestRevision = nil
                 next.isSourcePreserved = false
                 next.sourceText = next.displayedText
+                next.candidates = []
+                next.selectedCandidateIndex = nil
                 return Outcome(
                     state: next,
                     effect: wasConverting ? .cancelConversion : .none,
@@ -330,11 +362,35 @@ public enum CompositionTransition {
         next.revision &+= 1
         next.activeRequestRevision = nil
         next.isSourcePreserved = false
+        // 原文へ戻したら候補の文脈も終わる（候補巡回より Escape 復元を優先）。
+        next.candidates = []
+        next.selectedCandidateIndex = nil
         return Outcome(
             state: next,
             effect: wasConverting ? .cancelConversion : .none,
             view: .from(state: next)
         )
+    }
+
+    // MARK: - Candidate selection
+
+    /// 蓄積された候補の選択を offset だけ wrap around で移動し、表示を
+    /// 選択候補へ差し替える。converted で候補が 2 件以上のときだけ有効。
+    /// sourceText / isSourcePreserved / candidates は変更しないため、
+    /// Escape は引き続き原文へ戻り、Enter は表示中の候補を確定する。
+    private static func selectCandidate(_ state: CompositionState, offset: Int) -> Outcome {
+        guard state.canCycleCandidates, let current = state.selectedCandidateIndex else {
+            return noop(state)
+        }
+        let count = state.candidates.count
+        let selected = ((current + offset) % count + count) % count
+        let text = state.candidates[selected].text
+        var next = state
+        next.selectedCandidateIndex = selected
+        next.displayedText = text
+        next.selection = .cursor(at: text.utf16.count)
+        next.revision &+= 1
+        return Outcome(state: next, effect: .none, view: .from(state: next))
     }
 
     private static func commit(_ state: CompositionState) -> Outcome {

@@ -10,6 +10,9 @@ public enum CompositionCommand: Sendable {
     case requestConversion(ConversionTarget)
     /// composition 全体をその場で決定論的にひらがな化する（AI 不要・即時）。
     case normalizeToKana
+    /// 蓄積された変換候補の選択を offset だけ移動する（+1 = 次、-1 = 前）。
+    /// converted で候補が 2 件以上のときだけ有効（それ以外は noop）。
+    case selectCandidate(offset: Int)
     case conversionSucceeded(ConversionResult)
     case conversionFailed(
         requestID: ConversionRequestID,

@@ -21,6 +21,8 @@ final class InputController: IMKInputController {
         static let keypadEnter: UInt16 = 76
         static let leftArrow: UInt16 = 123
         static let rightArrow: UInt16 = 124
+        static let downArrow: UInt16 = 125
+        static let upArrow: UInt16 = 126
     }
 
     override func recognizedEvents(_ sender: Any!) -> Int {
@@ -108,6 +110,22 @@ final class InputController: IMKInputController {
         case KeyCode.rightArrow:
             guard composing, essentialFlags.isEmpty else { return false }
             coordinator.handle(.moveCursor(offset: 1))
+            return true
+
+        case KeyCode.upArrow:
+            // converted で候補が 2 件以上のときだけ消費する。それ以外は
+            // アプリ（ターミナルの履歴操作等）へ通す。
+            guard composing, essentialFlags.isEmpty,
+                coordinator.state.canCycleCandidates
+            else { return false }
+            coordinator.handle(.selectCandidate(offset: -1))
+            return true
+
+        case KeyCode.downArrow:
+            guard composing, essentialFlags.isEmpty,
+                coordinator.state.canCycleCandidates
+            else { return false }
+            coordinator.handle(.selectCandidate(offset: 1))
             return true
 
         default:

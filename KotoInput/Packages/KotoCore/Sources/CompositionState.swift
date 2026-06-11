@@ -20,6 +20,14 @@ public struct CompositionState: Equatable, Sendable {
     /// 直近の変換要求のターゲット言語。converted からの再要求が同じ target
     /// なら再抽選（attempt + 1）、別の target なら attempt 0 で変換し直す。
     public var conversionTarget: ConversionTarget
+    /// 現在の原文スナップショットに対して蓄積された変換候補（検証通過済み）。
+    /// converted からの再変換要求（同 target 再抽選・別 target 切替）では
+    /// 蓄積を継続し、スナップショットを壊す編集・cancel・commit・
+    /// restoreSource・deactivate でクリアされる。
+    public var candidates: [ConversionCandidate]
+    /// candidates のうち現在 marked text として表示している候補の位置。
+    /// 候補が無いときは nil。
+    public var selectedCandidateIndex: Int?
 
     public init(
         compositionID: CompositionID,
@@ -31,7 +39,9 @@ public struct CompositionState: Equatable, Sendable {
         activeRequestRevision: UInt64?,
         isSourcePreserved: Bool,
         retryCount: Int = 0,
-        conversionTarget: ConversionTarget = .japanese
+        conversionTarget: ConversionTarget = .japanese,
+        candidates: [ConversionCandidate] = [],
+        selectedCandidateIndex: Int? = nil
     ) {
         self.compositionID = compositionID
         self.phase = phase
@@ -43,6 +53,8 @@ public struct CompositionState: Equatable, Sendable {
         self.isSourcePreserved = isSourcePreserved
         self.retryCount = retryCount
         self.conversionTarget = conversionTarget
+        self.candidates = candidates
+        self.selectedCandidateIndex = selectedCandidateIndex
     }
 
     /// 新しい composition ID を持つ初期状態。
@@ -61,6 +73,16 @@ public struct CompositionState: Equatable, Sendable {
 
     public var hasActiveComposition: Bool {
         phase != .idle
+    }
+
+    /// 上下矢印で候補を巡回できるかどうか。converted で候補が 2 件以上の
+    /// ときだけ true。false のとき InputController はキーを消費せずアプリへ
+    /// 通す（ターミナルの履歴操作を奪わない）。
+    public var canCycleCandidates: Bool {
+        if case .converted = phase {
+            return candidates.count >= 2
+        }
+        return false
     }
 
     /// Escape を restoreSource として解釈すべきかどうか。
