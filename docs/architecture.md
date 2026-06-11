@@ -85,7 +85,8 @@ idle → composing → converting → converted → (commit) → idle
 ## プロンプトと出力検証
 
 - プロンプトは `[ROLE]` `[REQUIREMENTS]` `[EXAMPLE]` `[STYLE]` `[PROTECTED_TERMS]` を instructions に、`[INPUT]` をユーザープロンプトに分けて構築する（`PromptBuilder`）。入力テキストは「変換対象のコンテンツ」であり指示ではない、と instructions 側で明示する。
-- instructions は `ConversionTarget` ごとに分けて構築する（ADR-0009）。日本語は整文と文体設定（`style` / `customInstruction`）を含む変換 instructions、翻訳は忠実な訳・保護語/識別子の verbatim 維持・忠実な few-shot 1 例で構成する。few-shot に言い換えの例を入れない（小型モデルが意味置換を学習するため。Issue 22）。文体設定とカスタム指示は翻訳には適用しない。
+- instructions は `ConversionTarget` ごとに分けて構築する（ADR-0009）。日本語は整文と文体設定（`style` / `customInstruction`）を含む変換 instructions、翻訳は忠実な訳・保護語/識別子の verbatim 維持・忠実な few-shot 1 例で構成する。few-shot に言い換えの例を入れない（小型モデルが意味置換を学習するため。Issue 22）。文体設定とカスタム指示は翻訳には適用しない。翻訳のトーンは `OutputProfile`（neutral / polite / business / casual / technical）を `[STYLE]` へ写像する（ADR-0010）。
+- アラビア語はキー割当の無い表現可能ターゲット（ADR-0010）。実行時にモデルが対象言語へ対応しない場合は `modelUnavailable` で fail-safe（原文保持）する。翻訳品質はゴールデン一致ではなく品質フィクスチャ（`KotoInput/Tests/KotoCoreTests/Fixtures/`、Issue 36）の機械検証契約（保護語の残存・無断の断定の不在）で評価する。
 - [INPUT] は `RomajiKanaConverter` で決定論的にかな正規化してから渡す（ADR-0006）。モデルの仕事はかな漢字変換・翻訳と整文に絞られ、ローマ字解釈の揺れが構造的に消える。かな正規化は全 target 共通で、同じ変換器を Tab キー（その場ひらがな化）でも使う。保護語は語境界照合で正規化から除外する（ADR-0007）。
 - プロンプトはセキュリティ境界ではないため、出力は `ConversionOutputValidator` で決定論的に検証する。
   - 全 target 共通: 空・空白のみの出力は失敗。出力長が「元テキストの UTF-16 長 × 膨張率（既定 4 倍）+ 固定許容量 64」を超えたら失敗。元テキストに含まれる保護語（protected term）と頭字語（長さ 2 以上の大文字連続）が出力から消えたり表記が崩れたりしたら失敗。生成後の機械的な置換はしない。

@@ -18,7 +18,8 @@ public enum PromptBuilder {
         switch target {
         case .japanese:
             return japaneseInstructions(settings: settings)
-        case .english, .chineseSimplified, .korean, .french, .german, .spanish:
+        case .english, .chineseSimplified, .korean, .french, .german, .spanish,
+            .arabic:
             return translationInstructions(settings: settings, target: target)
         }
     }
@@ -161,7 +162,9 @@ public enum PromptBuilder {
             """
         )
 
-        sections.append("[STYLE]\n自然で読みやすい訳文に整える。")
+        sections.append(
+            "[STYLE]\n" + outputProfileInstruction(settings.outputProfile)
+        )
 
         let terms = settings.sanitizedProtectedTerms
         if !terms.isEmpty {
@@ -193,6 +196,26 @@ public enum PromptBuilder {
             return (input, "Heute ist ein guter Tag")
         case .spanish:
             return (input, "Hoy es un buen día")
+        case .arabic:
+            return (input, "اليوم يوم جميل")
+        }
+    }
+
+    /// OutputProfile を翻訳 instructions の [STYLE] セクションへ写像する
+    /// （ADR-0010）。どのプロファイルでも「自然で読みやすい」基調は維持し、
+    /// 保護語・検証の挙動には影響しない。
+    static func outputProfileInstruction(_ profile: OutputProfile) -> String {
+        switch profile {
+        case .neutral:
+            return "自然で読みやすい訳文に整える。"
+        case .polite:
+            return "自然で読みやすい訳文に整える。丁寧で礼儀正しい文体にする。"
+        case .business:
+            return "自然で読みやすい訳文に整える。ビジネス文書として適切な文体にする。"
+        case .casual:
+            return "自然で読みやすい訳文に整える。チャット向けの気さくな文体にする。"
+        case .technical:
+            return "自然で読みやすい訳文に整える。技術文書として用語の正確さを優先する。"
         }
     }
 

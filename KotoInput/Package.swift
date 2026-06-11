@@ -37,7 +37,12 @@ let package = Package(
         .testTarget(
             name: "KotoCoreTests",
             dependencies: ["KotoCore"],
-            path: "Tests/KotoCoreTests"
+            path: "Tests/KotoCoreTests",
+            resources: [
+                // 多言語品質フィクスチャ（Issue 36）。ディレクトリ構造ごと
+                // バンドルへコピーし、Bundle.module から読む。
+                .copy("Fixtures")
+            ]
         ),
         .testTarget(
             name: "AppleFoundationModelsProviderTests",

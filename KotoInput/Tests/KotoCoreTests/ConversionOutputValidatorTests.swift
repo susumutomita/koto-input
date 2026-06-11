@@ -324,4 +324,99 @@ struct ConversionOutputValidatorTests {
         }
         #expect(message.contains("長すぎます"))
     }
+
+    // MARK: - 多言語出力の検証契約（ADR-0010）
+
+    @Test("アラビア語（RTL）出力はラテン保護語を保持したまま Unicode 安全に検証を通る")
+    func arabicOutputWithLatinProtectedTermPasses() {
+        let result = ConversionOutputValidator.validate(
+            output: "أتحقق من Claude Code",
+            source: "Claude Code wo kakunin shimasu",
+            settings: .default,
+            target: .arabic
+        )
+        #expect(result == .success("أتحقق من Claude Code"))
+    }
+
+    @Test("アラビア語ターゲットでも日本語固有の句点 strip・鉤括弧 unwrap は適用しない")
+    func arabicTargetSkipsJapaneseSpecificFixups() {
+        let result = ConversionOutputValidator.validate(
+            output: "「اليوم يوم جميل。」",
+            source: "kyou ha ii hi da",
+            settings: .default,
+            target: .arabic
+        )
+        #expect(result == .success("「اليوم يوم جميل。」"))
+    }
+
+    @Test("日本語原文より大幅に短い英語出力は、空でない限り拒否されない")
+    func shortEnglishOutputIsNotRejected() {
+        let result = ConversionOutputValidator.validate(
+            output: "Got it",
+            source: "shouchi shimashita yoroshiku onegai itashimasu",
+            settings: .default,
+            target: .english
+        )
+        #expect(result == .success("Got it"))
+    }
+
+    @Test("保護語が消えた多言語出力は target によらず拒否される")
+    func multilingualOutputLosingProtectedTermFails() {
+        for target in [ConversionTarget.english, .arabic, .korean] {
+            let result = ConversionOutputValidator.validate(
+                output: "كلود كود を確認",
+                source: "Claude Code wo kakunin shimasu",
+                settings: .default,
+                target: target
+            )
+            guard case .failure(.generationFailed) = result else {
+                Issue.record("\(target) で保護語の消失が検出されなかった: \(result)")
+                return
+            }
+        }
+    }
+
+    @Test("検証失敗のエラーメッセージに source / output の本文を混入させない")
+    func failureMessagesDoNotLeakUserText() {
+        // 保護語消失: メッセージに含まれるのは保護語名のみで、原文・出力の
+        // 本文は含まれない（プライバシー制約。ADR-0010）。
+        let source = "Claude Code de himitsu no shiryou wo naosu"
+        let output = "極秘の資料をクロードコードで直す"
+        let lostTerm = ConversionOutputValidator.validate(
+            output: output,
+            source: source,
+            settings: .default,
+            target: .english
+        )
+        guard case .failure(let error) = lostTerm,
+            case .generationFailed(let message) = error
+        else {
+            Issue.record("保護語の消失が検出されなかった: \(lostTerm)")
+            return
+        }
+        #expect(!message.contains(source))
+        #expect(!message.contains(output))
+        #expect(!error.userMessage.contains(source))
+        #expect(!error.userMessage.contains(output))
+
+        // 膨張率超過: メッセージに含まれるのは長さの数値のみ。
+        var settings = ConversionSettings.default
+        settings.maximumExpansionRatio = 1.0
+        let longOutput = String(
+            repeating: "秘",
+            count: 16 + ConversionOutputValidator.fixedAllowance
+        )
+        let tooLong = ConversionOutputValidator.validate(
+            output: longOutput,
+            source: "mijikai",
+            settings: settings,
+            target: .english
+        )
+        guard case .failure(.generationFailed(let lengthMessage)) = tooLong else {
+            Issue.record("膨張率超過が拒否されなかった: \(tooLong)")
+            return
+        }
+        #expect(!lengthMessage.contains(longOutput))
+        #expect(!lengthMessage.contains("mijikai"))
+    }
 }
