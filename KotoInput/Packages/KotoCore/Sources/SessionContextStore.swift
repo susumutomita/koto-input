@@ -12,10 +12,13 @@ public final class SessionContextStore {
     public static let shared = SessionContextStore()
 
     /// 保持する最大件数。超えたら古いものから FIFO で破棄する。
-    public static let maxEntries = 5
+    /// 予算定数は不変の Sendable なので nonisolated にし、非 MainActor の
+    /// テスト・検証コード（#expect の nonisolated autoclosure 等）からも
+    /// 参照できるようにする。
+    public nonisolated static let maxEntries = 5
     /// 全エントリ合計の最大 UTF-16 長。プロンプトの [CONTEXT] 上限と一致し、
     /// 1 エントリの切り詰め上限も兼ねる（単独で予算全体を使い切れる）。
-    public static let maxTotalUTF16Length = 500
+    public nonisolated static let maxTotalUTF16Length = 500
 
     private var entries: [String] = []
 
