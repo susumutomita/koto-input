@@ -1,6 +1,6 @@
 # Koto
 
-Koto は、ローマ字・英語・日本語の混在テキストを自然な日本語へ変換する macOS 用入力メソッド。変換には macOS 組み込みのオンデバイスモデル（Apple Intelligence の FoundationModels framework）を使う。Claude Code や Codex CLI などのターミナルアプリへ送信する前のテキストを、composition バッファ内で変換する。
+Koto は、ローマ字・英語・日本語の混在テキストを自然な日本語へ変換する macOS 用入力メソッド。`Ctrl + Shift + 言語キー` を押すと、同じテキストを英語・中国語（簡体字）・韓国語・フランス語・ドイツ語・スペイン語へ翻訳変換する。変換には macOS 組み込みのオンデバイスモデル（Apple Intelligence の FoundationModels framework）を使う。Claude Code や Codex CLI などのターミナルアプリへ送信する前のテキストを、composition バッファ内で変換する。
 
 入力例。
 
@@ -14,10 +14,17 @@ kono authentication no sekinin han'i ga aimai dakara application layer dake de c
 この認証設計は責任範囲が曖昧なので、アプリケーション層だけでチェックするのは危険です。
 ```
 
+同じ入力から `Ctrl + Shift + E` で英語へも変換できる。
+
+```text
+This authentication design has ambiguous responsibility boundaries, so checking only at the application layer is risky.
+```
+
 ## 特徴
 
 - 変換はデバイス上で完結し、入力テキストを外部サービスへ送信しない。
 - 変換と送信が分離しており、`Shift + Space` は変換だけを行う。
+- `Ctrl + Shift + 言語キー` で 6 言語への翻訳変換ができる。打った場所にそのまま訳文が入る。
 - Escape で変換前のテキストへ戻せる。
 - 特定アプリ向けの拡張ではなく入力メソッドとして動くため、ターミナル以外でも使える。
 
@@ -90,9 +97,9 @@ defaults delete com.susumutomita.inputmethod.Koto conversionSettings
 
 | キー | 値 |
 |------|----|
-| `style` | `neutral` / `polite` / `plain` |
-| `customInstruction` | 追加の変換指示テキスト |
-| `protectedTerms` | 出力に原文どおり残す語の配列 |
+| `style` | `neutral` / `polite` / `plain`（日本語変換のみに適用） |
+| `customInstruction` | 追加の変換指示テキスト（日本語変換のみに適用） |
+| `protectedTerms` | 出力に原文どおり残す語の配列（翻訳にも適用） |
 | `maximumExpansionRatio` | 出力長の上限倍率（デフォルト 4.0） |
 
 ## プライバシー
@@ -104,6 +111,7 @@ defaults delete com.susumutomita.inputmethod.Koto conversionSettings
 ## 既知の制限
 
 - Apple Intelligence が無効な環境では変換できない。その場合も元テキストは保持される。
+- 翻訳の初回変換は日本語より待ち時間が長い場合がある（prewarm は日本語のみ）。
 - ターミナルごとの互換性検証の状況は [docs/terminal-compatibility.md](./docs/terminal-compatibility.md) を参照。
 - 変換中の表示は marked text の下線のみで、スピナーや通知は出ない。
 - ローマ字として最後まで解釈できる小文字の英単語（例: `sudo` → すど）はかな化される。`protectedTerms` への登録で防げる。
