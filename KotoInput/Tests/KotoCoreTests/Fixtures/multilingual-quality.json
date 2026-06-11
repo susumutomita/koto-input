@@ -1,0 +1,143 @@
+[
+  {
+    "id": "ja-seibun-basic",
+    "source": "kyou ha ame da",
+    "targetLanguage": "ja",
+    "profile": "neutral",
+    "acceptableOutputs": ["今日は雨だ"],
+    "mustPreserve": [],
+    "mustNotAdd": []
+  },
+  {
+    "id": "ja-seibun-protected",
+    "source": "Claude Code de scripts/check.sh wo naosu",
+    "targetLanguage": "ja",
+    "profile": "neutral",
+    "acceptableOutputs": ["Claude Code で scripts/check.sh を直す"],
+    "mustPreserve": ["Claude Code", "scripts/check.sh"],
+    "mustNotAdd": []
+  },
+  {
+    "id": "ja-seibun-business",
+    "source": "honjitsu no kaigi no gijiroku wo soufu itashimasu",
+    "targetLanguage": "ja",
+    "profile": "business",
+    "acceptableOutputs": ["本日の会議の議事録を送付いたします"],
+    "mustPreserve": [],
+    "mustNotAdd": ["承認"]
+  },
+  {
+    "id": "en-technical-command",
+    "source": "Claude Code de scripts/check.sh wo jikkou shite Issue 31 wo kakunin shimasu",
+    "targetLanguage": "en",
+    "profile": "technical",
+    "acceptableOutputs": [
+      "Run scripts/check.sh with Claude Code and check Issue 31",
+      "I will run scripts/check.sh with Claude Code and verify Issue 31"
+    ],
+    "mustPreserve": ["Claude Code", "scripts/check.sh", "Issue 31"],
+    "mustNotAdd": []
+  },
+  {
+    "id": "en-technical-url",
+    "source": "https://github.com/susumutomita/koto-input/issues/32 wo Codex de kakunin shimasu",
+    "targetLanguage": "en",
+    "profile": "technical",
+    "acceptableOutputs": [
+      "Check https://github.com/susumutomita/koto-input/issues/32 with Codex"
+    ],
+    "mustPreserve": [
+      "https://github.com/susumutomita/koto-input/issues/32",
+      "Codex"
+    ],
+    "mustNotAdd": []
+  },
+  {
+    "id": "en-technical-identifier",
+    "source": "make before-commit wo jikkou shite kara PR wo tsukuru",
+    "targetLanguage": "en",
+    "profile": "technical",
+    "acceptableOutputs": ["Run make before-commit before creating the PR"],
+    "rejectedOutputs": ["Run the checks before creating the pull request"],
+    "mustPreserve": ["make before-commit", "PR"],
+    "mustNotAdd": []
+  },
+  {
+    "id": "en-business-deadline",
+    "source": "kore ashita made ni kakunin shite okimasu",
+    "targetLanguage": "en",
+    "profile": "business",
+    "acceptableOutputs": [
+      "I will check this by tomorrow",
+      "I will make sure to check this by tomorrow"
+    ],
+    "mustPreserve": [],
+    "mustNotAdd": ["completed", "approved"]
+  },
+  {
+    "id": "en-casual-slack",
+    "source": "sukoshi okuremasu saki ni hajimete kudasai",
+    "targetLanguage": "en",
+    "profile": "casual",
+    "acceptableOutputs": [
+      "Running a bit late, please go ahead and start",
+      "I'll be a bit late, feel free to start"
+    ],
+    "mustPreserve": [],
+    "mustNotAdd": ["meeting"]
+  },
+  {
+    "id": "en-context-yoroshiku",
+    "source": "shiryou okurimashita yoroshiku onegaishimasu",
+    "targetLanguage": "en",
+    "profile": "polite",
+    "acceptableOutputs": [
+      "I have sent the documents, thank you in advance",
+      "I sent the materials and would appreciate your taking a look"
+    ],
+    "mustPreserve": [],
+    "mustNotAdd": ["urgent", "immediately"]
+  },
+  {
+    "id": "en-short-output",
+    "source": "shouchi itashimashita",
+    "targetLanguage": "en",
+    "profile": "casual",
+    "acceptableOutputs": ["Got it", "Understood"],
+    "rejectedOutputs": [""],
+    "mustPreserve": [],
+    "mustNotAdd": []
+  },
+  {
+    "id": "ar-schedule",
+    "source": "ohayou gozaimasu kyou no yotei wo kyouyuu shimasu",
+    "targetLanguage": "ar",
+    "profile": "neutral",
+    "acceptableOutputs": ["صباح الخير، سأشارك جدول اليوم"],
+    "mustPreserve": [],
+    "mustNotAdd": []
+  },
+  {
+    "id": "ar-technical-protected",
+    "source": "Claude Code wo kakunin shimasu",
+    "targetLanguage": "ar",
+    "profile": "technical",
+    "acceptableOutputs": ["أتحقق من Claude Code", "سوف أتحقق من Claude Code"],
+    "rejectedOutputs": ["أتحقق من كلود كود"],
+    "mustPreserve": ["Claude Code"],
+    "mustNotAdd": []
+  },
+  {
+    "id": "en-reject-protected-loss",
+    "source": "Codex to TenkaCloud no setsuzoku wo tamesu",
+    "targetLanguage": "en",
+    "profile": "technical",
+    "acceptableOutputs": [
+      "Try connecting Codex to TenkaCloud",
+      "Test the connection between Codex and TenkaCloud"
+    ],
+    "rejectedOutputs": ["Try connecting the codex to the cloud"],
+    "mustPreserve": ["Codex", "TenkaCloud"],
+    "mustNotAdd": []
+  }
+]

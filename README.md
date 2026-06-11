@@ -101,6 +101,7 @@ defaults delete com.susumutomita.inputmethod.Koto conversionSettings
 | `customInstruction` | 追加の変換指示テキスト（日本語変換のみに適用） |
 | `protectedTerms` | 出力に原文どおり残す語の配列（翻訳にも適用） |
 | `maximumExpansionRatio` | 出力長の上限倍率（デフォルト 4.0） |
+| `outputProfile` | `neutral` / `polite` / `business` / `casual` / `technical`（翻訳のトーン。日本語変換には適用しない） |
 
 ## プライバシー
 

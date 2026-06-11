@@ -42,6 +42,12 @@ struct ConversionTargetTests {
         #expect(ConversionTarget(languageKey: "J") == nil)
     }
 
+    @Test("アラビア語はキー割当の無い表現可能ターゲットで、言語キーから解決しない（ADR-0010）")
+    func arabicIsNotResolvedFromLanguageKey() {
+        #expect(ConversionTarget(languageKey: "a") == nil)
+        #expect(ConversionTarget(languageKey: "A") == nil)
+    }
+
     @Test("languageName はプロンプトでモデルに指示する英語名を返す")
     func languageNameIsEnglishName() {
         #expect(ConversionTarget.japanese.languageName == "Japanese")
@@ -51,11 +57,51 @@ struct ConversionTargetTests {
         #expect(ConversionTarget.french.languageName == "French")
         #expect(ConversionTarget.german.languageName == "German")
         #expect(ConversionTarget.spanish.languageName == "Spanish")
+        #expect(ConversionTarget.arabic.languageName == "Arabic")
     }
 
-    @Test("全ターゲットは日本語 + 翻訳 6 言語の 7 つ")
-    func allCasesCoverSevenTargets() {
-        #expect(ConversionTarget.allCases.count == 7)
+    @Test("全ターゲットは日本語 + 翻訳 7 言語の 8 つ")
+    func allCasesCoverEightTargets() {
+        #expect(ConversionTarget.allCases.count == 8)
         #expect(ConversionTarget.allCases.first == .japanese)
+    }
+
+    // MARK: - ターゲット言語のメタデータ（ADR-0010）
+
+    @Test("localeIdentifier は BCP 47 のロケール識別子を返す")
+    func localeIdentifierIsBCP47() {
+        #expect(ConversionTarget.japanese.localeIdentifier == "ja")
+        #expect(ConversionTarget.english.localeIdentifier == "en")
+        #expect(ConversionTarget.chineseSimplified.localeIdentifier == "zh-Hans")
+        #expect(ConversionTarget.korean.localeIdentifier == "ko")
+        #expect(ConversionTarget.french.localeIdentifier == "fr")
+        #expect(ConversionTarget.german.localeIdentifier == "de")
+        #expect(ConversionTarget.spanish.localeIdentifier == "es")
+        #expect(ConversionTarget.arabic.localeIdentifier == "ar")
+    }
+
+    @Test("localeIdentifier は全ターゲットで一意")
+    func localeIdentifierIsUnique() {
+        let identifiers = ConversionTarget.allCases.map(\.localeIdentifier)
+        #expect(Set(identifiers).count == ConversionTarget.allCases.count)
+    }
+
+    @Test("displayName は設定 UI・候補ラベル用の日本語名を返す")
+    func displayNameIsJapaneseLabel() {
+        #expect(ConversionTarget.japanese.displayName == "日本語")
+        #expect(ConversionTarget.english.displayName == "英語")
+        #expect(ConversionTarget.chineseSimplified.displayName == "中国語（簡体字）")
+        #expect(ConversionTarget.korean.displayName == "韓国語")
+        #expect(ConversionTarget.french.displayName == "フランス語")
+        #expect(ConversionTarget.german.displayName == "ドイツ語")
+        #expect(ConversionTarget.spanish.displayName == "スペイン語")
+        #expect(ConversionTarget.arabic.displayName == "アラビア語")
+    }
+
+    @Test("isRightToLeft はアラビア語のみ true")
+    func isRightToLeftOnlyForArabic() {
+        for target in ConversionTarget.allCases {
+            #expect(target.isRightToLeft == (target == .arabic))
+        }
     }
 }
