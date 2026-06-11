@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/susumutomita/koto-input/actions/workflows/ci.yml/badge.svg)](https://github.com/susumutomita/koto-input/actions/workflows/ci.yml)
 
-Koto は、ローマ字・英語・日本語の混在テキストを自然な日本語へ変換する macOS 用入力メソッド。`Ctrl + Shift + 言語キー` を押すと、同じテキストを英語・中国語（簡体字）・韓国語・フランス語・ドイツ語・スペイン語へ翻訳変換する。変換には macOS 組み込みのオンデバイスモデル（Apple Intelligence の FoundationModels framework）を使う。Claude Code や Codex CLI などのターミナルアプリへ送信する前のテキストを、composition バッファ内で変換する。
+Koto は、ローマ字・英語・日本語の混在テキストを自然な日本語へ変換する macOS 用入力メソッド。`Ctrl + Shift + 言語キー` を押すと、同じテキストを英語・中国語（簡体字）・韓国語・フランス語・ドイツ語・スペイン語へ翻訳変換する。変換に使う AI は macOS 組み込みのオンデバイスモデル（Apple Intelligence の FoundationModels framework）だけで、クラウドや外部の AI サービスには接続しない。Claude Code や Codex CLI は変換に使う AI ではなく「入力先」の例で、これらのターミナルアプリへ送信する前のテキストを composition バッファ内で変換する。
 
 > Koto is an on-device AI input method for macOS. Type romaji anywhere, then convert it into natural Japanese — or into English and 5 other languages — using Apple Intelligence. No cloud, no logging.
 
@@ -30,7 +30,7 @@ This authentication design has ambiguous responsibility boundaries, so checking 
 
 ## 特徴
 
-- 変換はデバイス上で完結し、入力テキストを外部サービスへ送信しない。
+- 変換はデバイス上で完結し、入力テキストを外部サービスへ送信しない。変換エンジンは Apple のオンデバイスモデルのみで、OpenAI / Codex 等の外部 AI は使わない。
 - 変換と送信が分離しており、`Shift + Space` は変換だけを行う。
 - `Ctrl + Shift + 言語キー` で 6 言語への翻訳変換ができる。打った場所にそのまま訳文が入る。
 - Escape で変換前のテキストへ戻せる。
