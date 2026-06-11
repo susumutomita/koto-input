@@ -8,12 +8,15 @@ public struct ConversionRequest: Sendable {
     /// 表示・Escape 復元と同じテキストを指す。
     public let sourceText: String
     public let settings: ConversionSettings
-    /// 同じ原文に対する再変換（候補の再抽選）の回数。0 が初回。
+    /// 変換先の言語。プロンプトの instructions と出力検証の言語分岐に使う。
+    public let target: ConversionTarget
+    /// 同じ原文・同じ target に対する再変換（候補の再抽選）の回数。0 が初回。
     public let attempt: Int
 
     /// モデルへ渡すかな化済み入力。プロンプト構築にのみ使う。
-    /// 評価は呼び出し側（provider の actor コンテキスト）で行われ、
-    /// メインアクターを塞がない。
+    /// 分かち書きなしローマ字の弱点は言語によらないため、前段かな化は
+    /// 全 target 共通で適用する。評価は呼び出し側（provider の actor
+    /// コンテキスト）で行われ、メインアクターを塞がない。
     public var modelInputText: String {
         RomajiKanaConverter.normalize(
             sourceText,
@@ -27,6 +30,7 @@ public struct ConversionRequest: Sendable {
         revision: UInt64,
         sourceText: String,
         settings: ConversionSettings,
+        target: ConversionTarget = .japanese,
         attempt: Int = 0
     ) {
         self.id = id
@@ -34,6 +38,7 @@ public struct ConversionRequest: Sendable {
         self.revision = revision
         self.sourceText = sourceText
         self.settings = settings
+        self.target = target
         self.attempt = attempt
     }
 }

@@ -5,7 +5,9 @@ public enum CompositionCommand: Sendable {
     case deleteBackward
     case moveCursor(offset: Int)
     case replaceSelection(String)
-    case requestConversion
+    /// composition をターゲット言語へ AI 変換する。Shift + Space は
+    /// .japanese、Ctrl + Shift + 言語キーは翻訳ターゲットを指定する。
+    case requestConversion(ConversionTarget)
     /// composition 全体をその場で決定論的にひらがな化する（AI 不要・即時）。
     case normalizeToKana
     case conversionSucceeded(ConversionResult)

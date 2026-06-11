@@ -30,6 +30,26 @@ Issue 1 の Scope 5 で要求される手動検証の記録。実機（macOS 26 
 | Ghostty | Codex CLI | 未検証 | |
 | iTerm2 | Claude Code | 未検証 | |
 | iTerm2 | Codex CLI | 未検証 | |
+| VS Code 統合ターミナル | Claude Code | 未検証 | Ctrl + Shift + キーの衝突確認を含む（下記） |
+
+## 多言語変換キーの E2E シナリオと既知のキー衝突
+
+多言語変換キー（`docs/specs/2026-06-11-多言語変換キー.md`）の実機確認。英語 + もう 1 言語で実施し、結果をマトリクスの備考に記録する。
+
+1. `kyouhaiihida` と入力し `Ctrl + Shift + E` → 「Today is a good day」相当の自然な英語になること。
+2. 編集せずにもう一度 `Ctrl + Shift + E` → 別候補に変わること（再抽選）。
+3. `Ctrl + Shift + K`（または他言語キー）→ その言語の訳へ変わること。
+4. `Shift + Space` → 日本語変換へ戻ること。`Escape` → `kyouhaiihida` へ復元されること。
+5. `Claude Code wo tamesu` で `Ctrl + Shift + E` → 出力に `Claude Code` が原文のまま残ること（保護語）。
+6. composition が無い状態で `Ctrl + Shift + E` 等を押し、ターミナル側のショートカットとして動作すること（Koto が奪わないこと）。
+
+既知の衝突（アプリ側がキーを先取りし得る組み合わせ。composition 中でもアプリ設定によっては届かない）。
+
+| キー | 衝突するアプリ・機能 | 回避策 |
+|---|---|---|
+| `Ctrl + Shift + E` | VS Code（エクスプローラーフォーカス） | VS Code 側のキーバインド変更、または `terminal.integrated.sendKeybindingsToShell` の調整 |
+| `Ctrl + Shift + C` | VS Code（ターミナルへのコピー）・Ghostty（コピー） | 同上。Ghostty は `keybind` 設定で変更可能 |
+| `Ctrl + Shift + F` / `G` | VS Code（検索 / ソース管理） | 同上 |
 
 ## かな正規化の E2E シナリオ（Issue 10）
 
