@@ -631,3 +631,39 @@ Issue 46（https://github.com/susumutomita/koto-input/issues/46 ）の実装。c
 - 問題: 初回 CI で swift テストビルドが 1 件のコンパイルエラー（@MainActor 型の static 定数を非 MainActor テストから参照）。
 - 根本原因: #expect マクロが比較の右辺を nonisolated autoclosure へ展開することを、ローカルで Swift を実行できない環境での静的読解で取りこぼした（グローバルアクター隔離型の static 定数はモジュール外の非隔離文脈から同期参照できない）。
 - 予防策: @MainActor 型に置く不変の公開定数は nonisolated を既定とする。テストから参照する公開定数は、非隔離 suite からの参照を想定して宣言時に隔離属性を確認する。
+
+### Homebrew 配布フォローアップ解消（version 刻印 + tap 化） - 2026-06-12
+
+#### 目的
+
+フォローアップ 2 件を解消する。(1) `01KTX3RT4KZXY139S2EDV2V97A`: リリース zip 内の Koto.app の `CFBundleShortVersionString` が 0.1.0 のままでタグと不一致。(2) `01KTX3RSR6FXJ5GFTGFBJS3T2G`: Homebrew 4.x でパス指定 cask インストールが廃止され、README と `Casks/koto.rb` の手順（`brew install --cask ./Casks/koto.rb`）が動作しない。
+
+#### 制約
+
+- フォローアップは原則別 PR のため 2 PR に分割する（PR A: version 刻印、PR B: tap 化）。
+- tap の自動更新に新しい PAT を要求しない。tap リポジトリ自身の cron + workflow_dispatch ワークフローが公開 API で最新リリースを照会し、自身の `GITHUB_TOKEN` で commit する構成にする（cross-repo push を避ける）。
+- GitHub Actions は ADR-0001 に従い commit SHA でピン留めする。
+- cask の正本は tap リポジトリ（`susumutomita/homebrew-tap`）へ移し、koto-input 側の `Casks/koto.rb` は `git rm` で削除する（二重管理によるドリフト防止）。判断は ADR-0014 に記録する。
+
+#### タスク
+
+- [ ] PR A: `scripts/build-koto-app.sh` に `KOTO_VERSION` 刻印（PlistBuddy、codesign 前）+ `release.yml` の Build ステップでタグから `KOTO_VERSION` を渡す
+- [ ] PR A: ローカルで `KOTO_VERSION=9.9.9` ビルドし plist を確認
+- [ ] tap リポジトリ `susumutomita/homebrew-tap` を作成（cask v1.0.1 + sync ワークフロー）
+- [ ] ローカルの暫定 tap（koto-local）から公開 tap へ移行してインストール検証
+- [ ] PR B: README のインストール手順を tap 経由へ更新、`Casks/koto.rb` を `git rm`、ADR-0014 起案
+- [ ] 各 PR でゲート（harness / before-commit / review / security-review / simplify）→ push → PR
+
+#### 検証手順
+
+1. `KOTO_VERSION=9.9.9 bash scripts/build-koto-app.sh` 後に `PlistBuddy -c "Print :CFBundleShortVersionString" build/Koto.app/Contents/Info.plist` が 9.9.9。
+2. `brew tap susumutomita/tap && brew install --cask susumutomita/tap/koto` がローカルで成功。
+3. 次回リリース後、tap の sync ワークフローが cask を新バージョンへ更新する（リリース後に確認）。
+
+#### 進捗ログ
+
+- 2026-06-12: Homebrew 4.x の「casks must be in a tap」でインストール不能の報告を受け調査。暫定としてローカル tap `susumutomita/koto-local` を作成し v1.0.1 を導入。リリース zip の版数不一致（0.1.0）と ad-hoc 署名 + quarantine を確認し、フォローアップ 2 件を記録。
+
+#### 振り返り
+
+（完了時に記入）

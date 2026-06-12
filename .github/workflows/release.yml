@@ -57,8 +57,18 @@ jobs:
             | awk -F'"' 'NR==1{print $2}')
           echo "KOTO_CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
 
+      - name: Resolve release tag
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          # tag push では GITHUB_REF_NAME、workflow_dispatch では入力タグを使う。
+          # 後続ステップは $TAG を参照する。
+          echo "TAG=${TAG_INPUT:-$GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+
       - name: Build Koto.app
-        run: bash scripts/build-koto-app.sh
+        run: |
+          # タグの v を外した値を Info.plist へ刻印する（build-koto-app.sh 参照）。
+          KOTO_VERSION="${TAG#v}" bash scripts/build-koto-app.sh
 
       - name: Notarize (secrets 未設定ならスキップ)
         env:
@@ -82,10 +92,7 @@ jobs:
       - name: Package and upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_INPUT: ${{ inputs.tag }}
         run: |
-          # tag push では GITHUB_REF_NAME、workflow_dispatch では入力タグを使う。
-          TAG="${TAG_INPUT:-$GITHUB_REF_NAME}"
           ASSET="Koto-${TAG}.zip"
           ditto -c -k --keepParent build/Koto.app "$ASSET"
           shasum -a 256 "$ASSET" > "$ASSET.sha256"

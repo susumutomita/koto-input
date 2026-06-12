@@ -25,6 +25,22 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_PATH/KotoInputMethod" "$APP_DIR/Contents/MacOS/KotoInputMethod"
 cp "$PACKAGE_PATH/Apps/KotoInputMethod/Info.plist" "$APP_DIR/Contents/Info.plist"
 
+# リリースバージョンの刻印。KOTO_VERSION（release workflow がタグから設定、
+# 例: 1.0.1）が指定されていれば Info.plist に反映する。署名前に行うこと。
+# 未指定でも HEAD がちょうどタグ上ならタグから補完する（ローカルのタグビルド用）。
+# どちらも無ければリポジトリの Info.plist の値のまま。
+if [[ -z "${KOTO_VERSION:-}" ]]; then
+  TAG_AT_HEAD="$(git -C "$ROOT" describe --tags --exact-match 2>/dev/null || true)"
+  KOTO_VERSION="${TAG_AT_HEAD#v}"
+fi
+if [[ -n "${KOTO_VERSION}" ]]; then
+  echo "==> バージョン刻印: ${KOTO_VERSION}"
+  /usr/libexec/PlistBuddy \
+    -c "Set :CFBundleShortVersionString ${KOTO_VERSION}" \
+    -c "Set :CFBundleVersion ${KOTO_VERSION}" \
+    "$APP_DIR/Contents/Info.plist"
+fi
+
 # 署名。KOTO_CODESIGN_IDENTITY が設定されていれば Developer ID で
 # hardened runtime 付き署名（配布用、release workflow が設定する）。
 # 未設定なら ad-hoc 署名（Apple Silicon のローカル実行に必要）。
