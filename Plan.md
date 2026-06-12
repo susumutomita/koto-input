@@ -631,3 +631,44 @@ Issue 46（https://github.com/susumutomita/koto-input/issues/46 ）の実装。c
 - 問題: 初回 CI で swift テストビルドが 1 件のコンパイルエラー（@MainActor 型の static 定数を非 MainActor テストから参照）。
 - 根本原因: #expect マクロが比較の右辺を nonisolated autoclosure へ展開することを、ローカルで Swift を実行できない環境での静的読解で取りこぼした（グローバルアクター隔離型の static 定数はモジュール外の非隔離文脈から同期参照できない）。
 - 予防策: @MainActor 型に置く不変の公開定数は nonisolated を既定とする。テストから参照する公開定数は、非隔離 suite からの参照を想定して宣言時に隔離属性を確認する。
+
+### Homebrew 配布フォローアップ解消（version 刻印 + tap 化） - 2026-06-12
+
+#### 目的
+
+フォローアップ 2 件を解消する。(1) `01KTX3RT4KZXY139S2EDV2V97A`: リリース zip 内の Koto.app の `CFBundleShortVersionString` が 0.1.0 のままでタグと不一致。(2) `01KTX3RSR6FXJ5GFTGFBJS3T2G`: Homebrew 4.x でパス指定 cask インストールが廃止され、README と `Casks/koto.rb` の手順（`brew install --cask ./Casks/koto.rb`）が動作しない。
+
+#### 制約
+
+- フォローアップは原則別 PR のため 2 PR に分割する（PR A: version 刻印、PR B: tap 化）。
+- tap の自動更新に新しい PAT を要求しない。tap リポジトリ自身の cron + workflow_dispatch ワークフローが公開 API で最新リリースを照会し、自身の `GITHUB_TOKEN` で commit する構成にする（cross-repo push を避ける）。
+- GitHub Actions は ADR-0001 に従い commit SHA でピン留めする。
+- cask の正本は tap リポジトリ（`susumutomita/homebrew-tap`）へ移し、koto-input 側の `Casks/koto.rb` は `git rm` で削除する（二重管理によるドリフト防止）。判断は ADR-0014 に記録する。
+
+#### タスク
+
+- [x] PR A: `scripts/build-koto-app.sh` に `KOTO_VERSION` 刻印（PlistBuddy、codesign 前）+ `release.yml` の Build ステップでタグから `KOTO_VERSION` を渡す
+- [x] PR A: ローカルで `KOTO_VERSION=9.9.9` ビルドし plist を確認
+- [x] tap リポジトリ `susumutomita/homebrew-tap` を作成（cask v1.0.1 + sync ワークフロー）
+- [x] ローカルの暫定 tap（koto-local）から公開 tap へ移行してインストール検証
+- [x] PR B: README のインストール手順を tap 経由へ更新、`Casks/koto.rb` を `git rm`、ADR-0014 起案
+- [x] 各 PR でゲート（harness / before-commit / review / security-review / simplify）→ push → PR
+
+#### 検証手順
+
+1. `KOTO_VERSION=9.9.9 bash scripts/build-koto-app.sh` 後に `PlistBuddy -c "Print :CFBundleShortVersionString" build/Koto.app/Contents/Info.plist` が 9.9.9。
+2. `brew tap susumutomita/tap && brew install --cask susumutomita/tap/koto` がローカルで成功。
+3. 次回リリース後、tap の sync ワークフローが cask を新バージョンへ更新する（リリース後に確認）。
+
+#### 進捗ログ
+
+- 2026-06-12: Homebrew 4.x の「casks must be in a tap」でインストール不能の報告を受け調査。暫定としてローカル tap `susumutomita/koto-local` を作成し v1.0.1 を導入。リリース zip の版数不一致（0.1.0）と ad-hoc 署名 + quarantine を確認し、フォローアップ 2 件を記録。
+- 2026-06-12: PR A 実装。刻印（PlistBuddy、codesign 前）+ タグ解決の `Resolve release tag` ステップへの一本化（simplify 指摘の反映: TAG 解決の重複排除・PlistBuddy 1 回化・`git describe --exact-match` によるローカルタグビルド補完）。ローカル実ビルドで刻印あり（9.9.9）・なし（0.1.0 のまま）の 2 通りと `codesign --verify` を確認。PR 51 を作成し CI 全項目 green。
+- 2026-06-13: 公開 tap `susumutomita/homebrew-tap` を作成（ユーザー承認後）。cask v1.0.1 + `sync-cask` ワークフロー（cron 6h + dispatch、checkout は ADR-0001 と同じ SHA ピン）。workflow_dispatch で no-op パスの success を確認。ローカルを公開 tap へ移行（`brew tap susumutomita/tap` → インストール済み cask が新 tap へ解決されることを確認 → `koto-local` を untap → Homebrew 6 の tap trust を登録）。レビューで caveats の `"~/..."` がチルダ展開されない不具合を検出し `$HOME` へ修正。
+- 2026-06-13: PR B 実装（README の tap 経由手順 + アンインストール手順の分岐、`Casks/koto.rb` を git rm、ADR-0014 起案）。PR 52 を作成し CI 全項目 green。フォローアップ 2 件の resolve はマージ後に実施。
+
+#### 振り返り
+
+- 問題: 配布手順が Homebrew の仕様変更（パス指定 cask インストールの廃止）で壊れており、さらに cask の `version` / `sha256` が v1.0.1 リリース後も手動更新されず 0.1.0 / `:no_check` のまま停滞していた。リリース zip 内の版数もタグと不一致だった。
+- 根本原因: 「tap を作るまでの暫定」と明記したパス指定運用が恒久化していた。cask の鮮度維持とバージョン刻印がリリースフローに組み込まれておらず、人手の更新に依存していた。
+- 予防策: リリースごとに追従が必要な配布メタデータは自動追従にする（tap 側 `sync-cask` と release workflow の刻印で構造化済み）。暫定運用を導入する時点で、恒久対応のフォローアップを同時に起票する。外部エコシステム（Homebrew 等）の breaking change はインストール手順の実地確認でしか発見できないため、リリース後に配布経路の実インストール確認を検証手順へ含める。
