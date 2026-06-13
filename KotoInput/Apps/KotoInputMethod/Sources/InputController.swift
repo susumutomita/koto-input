@@ -227,15 +227,13 @@ final class InputController: IMKInputController {
         return created
     }
 
-    /// 変換プロバイダを構築する。既定はハイブリッド（辞書バックボーン + AI
-    /// 再ランク、ADR-0016）。同梱辞書のロードに失敗した場合のみ、AI 単独の
-    /// AppleFoundationModelsProvider へ縮退して IME を動かし続ける
-    /// （辞書が無くても従来どおり AI 変換は成立する）。
+    /// 変換プロバイダを構築する（ハイブリッド: 辞書ラティス + AI 単語選択、
+    /// ADR-0016）。init は即時・非スローで、重い辞書ロードは provider 内で
+    /// メインスレッド外に遅延ロードされる（メインアクターのここで呼んでも IME を
+    /// 固めない）。辞書ロードに失敗しても provider 内で AI と読みフォールバックへ
+    /// 縮退して動き続ける。
     private func makeProvider() -> any TextConversionProvider {
-        if let hybrid = try? HybridConversionProvider() {
-            return hybrid
-        }
-        return AppleFoundationModelsProvider()
+        HybridConversionProvider()
     }
 
     @MainActor

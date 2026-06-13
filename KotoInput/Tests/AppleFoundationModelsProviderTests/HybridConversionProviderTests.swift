@@ -221,7 +221,7 @@ struct HybridConversionProviderTests {
     func bundledHybridFallbackIsDeterministic() async throws {
         // AI を unavailable にして辞書ラティスのみの一発変換を検証する。
         let ai = ScriptedAIProvider(availability: .unavailable(reason: "x"))
-        let provider = try HybridConversionProvider(aiProvider: ai)
+        let provider = HybridConversionProvider(aiProvider: ai)
         let first = try await provider.convert(makeRequest("houhou")).convertedText
         let second = try await provider.convert(makeRequest("houhou")).convertedText
         #expect(first == "方法")
@@ -237,7 +237,7 @@ struct HybridConversionProviderTests {
         // （CompositionCoordinator）経由で end-to-end に確認する。AI 段は
         // unavailable に固定して辞書フォールバックだけを走らせる。
         let ai = ScriptedAIProvider(availability: .unavailable(reason: "x"))
-        let provider = try HybridConversionProvider(aiProvider: ai)
+        let provider = HybridConversionProvider(aiProvider: ai)
         let store = SessionContextStore()
 
         func runOnce() async throws -> String {
@@ -271,7 +271,7 @@ struct HybridConversionProviderTests {
         // 全辞書では草案に漢字が混じるが、いずれにせよ failed にならず converted に
         // 到達して非空テキストを確定することを検証する。
         let ai = ScriptedAIProvider(availability: .unavailable(reason: "x"))
-        let provider = try HybridConversionProvider(aiProvider: ai)
+        let provider = HybridConversionProvider(aiProvider: ai)
         let coordinator = CompositionCoordinator(
             provider: provider,
             settingsRepository: MutableSettingsRepository(settings: .default),
