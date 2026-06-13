@@ -216,7 +216,7 @@ final class InputController: IMKInputController {
         // 文脈 store はプロセス共有の .shared を渡し、全アプリ・全 coordinator
         // の commit テキストが 1 つのセッション内文脈メモリへ合流する（ADR-0013）。
         let created = CompositionCoordinator(
-            provider: AppleFoundationModelsProvider(),
+            provider: makeProvider(),
             settingsRepository: settingsRepository,
             contextStore: .shared,
             renderer: { [weak self] view in
@@ -225,6 +225,17 @@ final class InputController: IMKInputController {
         )
         coordinator = created
         return created
+    }
+
+    /// 変換プロバイダを構築する。既定はハイブリッド（辞書バックボーン + AI
+    /// 再ランク、ADR-0016）。同梱辞書のロードに失敗した場合のみ、AI 単独の
+    /// AppleFoundationModelsProvider へ縮退して IME を動かし続ける
+    /// （辞書が無くても従来どおり AI 変換は成立する）。
+    private func makeProvider() -> any TextConversionProvider {
+        if let hybrid = try? HybridConversionProvider() {
+            return hybrid
+        }
+        return AppleFoundationModelsProvider()
     }
 
     @MainActor

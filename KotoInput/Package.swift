@@ -18,7 +18,14 @@ let package = Package(
     targets: [
         .target(
             name: "KotoCore",
-            path: "Packages/KotoCore/Sources"
+            path: "Packages/KotoCore/Sources",
+            resources: [
+                // mozc dictionary_oss（BSD-3-Clause）由来の高頻度サブセット。
+                // 読みキー表（reading\tsurface\tcost、reading 昇順）。
+                // 生成は Tools/mozc-dictionary-subset/build-subset.sh、帰属は
+                // リポジトリ直下 THIRD-PARTY-LICENSES。Bundle.module から読む。
+                .copy("Resources/dictionary-subset.tsv")
+            ]
         ),
         .target(
             name: "AppleFoundationModelsProvider",
