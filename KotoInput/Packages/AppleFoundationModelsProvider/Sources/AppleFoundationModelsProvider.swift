@@ -108,9 +108,12 @@ public actor AppleFoundationModelsProvider: TextConversionProvider {
         // [CONTEXT] に載せ、prewarm を無効化しない。[CONTEXT] の取り扱い指示を
         // 持つのは日本語 instructions のみ（第一版）なので、指示を持たない
         // 翻訳 instructions に文脈を注入しないことをここでも強制する。
+        // 辞書草案（[DRAFT]）の取り扱い指示も日本語 instructions のみが持つので、
+        // 翻訳 target には草案を載せない。
         let prompt = PromptBuilder.prompt(
             modelInput: request.modelInputText,
-            contextEntries: request.target == .japanese ? request.contextEntries : []
+            contextEntries: request.target == .japanese ? request.contextEntries : [],
+            dictionaryDraft: request.target == .japanese ? request.dictionaryDraft : nil
         )
         do {
             // target に対応する prewarm 済みセッションがあれば 1 回だけ使う。

@@ -6,22 +6,24 @@ koto-input は以下の第三者データ・ソフトウェアを同梱・利用
 
 
 --------------------------------------------------------------------------------
-1. Mozc dictionary_oss（かな漢字変換辞書サブセット）
+1. Mozc dictionary_oss（かな漢字変換 全辞書・連接行列）
 --------------------------------------------------------------------------------
 
 同梱物:
-  KotoInput/Packages/KotoCore/Sources/Resources/dictionary-subset.tsv
+  KotoInput/Packages/KotoCore/Sources/Resources/dictionary.bin
+  KotoInput/Packages/KotoCore/Sources/Resources/connection.bin
 
 出典:
   https://github.com/google/mozc
-  src/data/dictionary_oss/dictionary00.txt 〜 dictionary09.txt
+  src/data/dictionary_oss/dictionary00.txt 〜 dictionary09.txt（辞書）
+  src/data/dictionary_oss/connection_single_column.txt（連接行列）
 
 由来と加工:
-  上記 mozc の OSS 辞書（dictionary_oss）から、高頻度の内容語（名詞・副詞）に
-  限定した小規模サブセットを抽出し、読みキー表（reading <TAB> surface <TAB>
-  cost）へ前処理したものです。抽出条件と再現手順は
-  KotoInput/Tools/mozc-dictionary-subset/build-subset.sh に記載しています。
-  原データの読み・表記そのものは改変していません。
+  上記 mozc の OSS 辞書（dictionary_oss）全エントリ（読み・表記・品詞 ID・
+  単語生起コスト）と POS 間連接コスト行列を、Viterbi ラティス変換が引きやすい
+  コンパクトなバイナリ（raw DEFLATE 圧縮）へ前処理したものです。再現手順は
+  KotoInput/Tools/mozc-dictionary/build-dictionary.sh に記載しています。
+  原データの読み・表記・コストそのものは改変していません。
 
 ライセンス: BSD-3-Clause（Google Inc.）に加え、辞書データ部分（src/data/
 dictionary*）には NAIST / ICOT の追加条件が適用されます。以下に mozc リポジトリ
