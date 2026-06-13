@@ -23,6 +23,7 @@ public enum CompositionCommand: Sendable {
         requestID: ConversionRequestID,
         compositionID: CompositionID,
         revision: UInt64,
+        attempt: Int,
         error: KotoError
     )
     case restoreSource

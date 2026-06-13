@@ -68,7 +68,7 @@ idle → composing → converting → converted → (commit) → idle
 - `revision` はユーザー編集・restore・新規変換要求のたびに増える。
 - 変換結果は `compositionID` / `requestID` / `revision` の 3 つが現在状態と一致するときだけ適用する。古い結果が新しい入力を上書きすることはない。
 - 変換要求は `ConversionTarget` を持つ。`Shift + Space` は日本語、`Ctrl + Shift + 言語キー`（E/C/K/F/G/S）は翻訳ターゲットを指定する（ADR-0009）。言語キーはキーコードではなく文字で判定し、composition が無いときは消費しない。
-- 再変換（ADR-0008）: converted から編集せずに再要求されると、原文スナップショットから変換し直す。同じ target なら attempt + 1 の再抽選（温度付き）、別の target なら attempt 0 でその言語へ変換し直す。Escape の復元先は常に原文。
+- 再変換（ADR-0008、ADR-0015）: converted / failed から編集せずに再要求されると、原文スナップショットから変換し直す。同じ target / 文脈有無なら attempt + 1 の再抽選（温度付き）、別の組なら attempt 0 で変換し直す。Escape の復元先は常に原文。
 - 候補巡回（ADR-0012）: 検証を通過した変換結果は同一スナップショットの候補として蓄積され、converted 中の ↑/↓ で marked text 内を巡回選択できる（日本語と各言語の候補が共存）。候補はスナップショットを壊す編集・commit・cancel・restoreSource でクリアされる。候補ウィンドウ（IMKCandidates）は実機検証の不確実性とターミナル相性から見送った。
 - タイプ先行（ADR-0005）: 変換中でも、スナップショットが先頭に残る末尾追記は変換を継続する。結果はスナップショット部分だけに splice され、追記分は保持される。スナップショットを壊す編集は従来どおりキャンセルする。
 - Tab は `RomajiKanaConverter` によるその場ひらがな化（AI 不要・即時、ADR-0006）。編集として扱われ、変換中なら既存のタイプ先行ルールに従う。保護語は AI 経路と同じ規則で除外される（ADR-0007）。
@@ -83,7 +83,7 @@ idle → composing → converting → converted → (commit) → idle
 - provider の cancellation はベストエフォート。stale 判定（上記 3 条件 + prefix 一致）は cancellation が成功しても必ず行う。
 - モデル呼び出しはキーイベントの同期ハンドリング中には行わない。`converting` 状態を描画してから非同期タスクで実行する。
 - composition 開始（idle → composing）時に provider を prewarm し、変換要求時のレイテンシを下げる（ADR-0005）。prewarm は日本語のみで、翻訳セッションは要求時にその場で作る（ADR-0009）。セッションは全 target で使い捨てのまま（ADR-0002）。
-- 再変換の attempt は provider のサンプリングを切り替える。attempt 0 は greedy（決定的）、attempt 1 以降は温度 0.8 の抽選（ADR-0008）。
+- 再変換の attempt は provider のサンプリングを切り替える。attempt 0 は greedy（決定的）、attempt 1 以降は温度 0.8 の抽選（ADR-0008）。validator が拒否した出力は coordinator が同一リクエスト内で最大 2 回まで自動再試行し、成功・失敗のどちらでも最後に試した attempt を状態へ反映する（ADR-0015）。
 
 ## プロンプトと出力検証
 
@@ -94,7 +94,7 @@ idle → composing → converting → converted → (commit) → idle
 - プロンプトはセキュリティ境界ではないため、出力は `ConversionOutputValidator` で決定論的に検証する。
   - 全 target 共通: 空・空白のみの出力は失敗。出力長が「元テキストの UTF-16 長 × 膨張率（既定 4 倍）+ 固定許容量 64」を超えたら失敗。元テキストに含まれる保護語（protected term）と頭字語（長さ 2 以上の大文字連続）が出力から消えたり表記が崩れたりしたら失敗。生成後の機械的な置換はしない。
   - 日本語のみ: 元テキストに無い末尾句点の strip と、出力全体を包む鉤括弧の unwrap を決定論で行う（小型モデルの出力癖への安全側の正規化）。翻訳では訳文の句読点・括弧を訳の一部として保持する。
-  - 失敗時は必ず元テキストを保持する。破壊的な自動修復はしない。
+  - 失敗時は必ず元テキストを保持する。破壊的な自動修復はしない。検証失敗だけは上限付きで自動再試行し、キャンセルや編集で確実に停止する（ADR-0015）。
 
 ## プライバシー
 

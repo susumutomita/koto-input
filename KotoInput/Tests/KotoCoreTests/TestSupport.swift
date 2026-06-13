@@ -67,7 +67,8 @@ actor ScriptedConversionProvider: TextConversionProvider {
             requestID: request.id,
             compositionID: request.compositionID,
             revision: request.revision,
-            convertedText: text
+            convertedText: text,
+            attempt: request.attempt
         )
     }
 

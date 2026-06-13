@@ -59,16 +59,21 @@ public struct ConversionResult: Equatable, Sendable {
     public let compositionID: CompositionID
     public let revision: UInt64
     public let convertedText: String
+    /// この結果を得るために実行した attempt。自動 retry が成功した場合に、
+    /// reducer が次回の再抽選開始位置を戻さないために使う。
+    public let attempt: Int
 
     public init(
         requestID: ConversionRequestID,
         compositionID: CompositionID,
         revision: UInt64,
-        convertedText: String
+        convertedText: String,
+        attempt: Int = 0
     ) {
         self.requestID = requestID
         self.compositionID = compositionID
         self.revision = revision
         self.convertedText = convertedText
+        self.attempt = attempt
     }
 }

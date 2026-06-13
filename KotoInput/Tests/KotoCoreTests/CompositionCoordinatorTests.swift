@@ -5,6 +5,16 @@ import Testing
 @MainActor
 @Suite("CompositionCoordinator の変換ライフサイクル")
 struct CompositionCoordinatorTests {
+    private func exhaustValidationRetries(
+        provider: ScriptedConversionProvider,
+        with output: String
+    ) async throws {
+        for _ in 0..<3 {
+            try await eventually { (await provider.pendingCount) == 1 }
+            await provider.resolveOldest(with: output)
+        }
+    }
+
     @Test("変換成功で marked text が置き換わり、commit で確定する")
     func successfulConversionAndCommit() async throws {
         let provider = ScriptedConversionProvider()
@@ -161,13 +171,14 @@ struct CompositionCoordinatorTests {
 
         coordinator.handle(.insert("kyou"))
         coordinator.handle(.requestConversion(.japanese))
-        try await eventually { (await provider.pendingCount) == 1 }
-        await provider.resolveOldest(with: "\n \n")
+        try await exhaustValidationRetries(provider: provider, with: "\n \n")
         try await eventually {
             if case .failed = coordinator.state.phase { return true }
             return false
         }
         #expect(coordinator.state.displayedText == "kyou")
+        #expect(coordinator.state.retryCount == 2)
+        #expect(await provider.receivedAttempts == [0, 1, 2])
     }
 
     @Test("保護語が消えた出力は拒否され元テキストを保持する")
@@ -177,8 +188,7 @@ struct CompositionCoordinatorTests {
 
         coordinator.handle(.insert("Claude Code de naosu"))
         coordinator.handle(.requestConversion(.japanese))
-        try await eventually { (await provider.pendingCount) == 1 }
-        await provider.resolveOldest(with: "クロードコードで直す")
+        try await exhaustValidationRetries(provider: provider, with: "クロードコードで直す")
         try await eventually {
             if case .failed = coordinator.state.phase { return true }
             return false
@@ -186,23 +196,50 @@ struct CompositionCoordinatorTests {
         #expect(coordinator.state.displayedText == "Claude Code de naosu")
     }
 
-    @Test("頭字語の表記が崩れた出力は拒否され元テキストを保持する")
-    func lostAcronymKeepsSource() async throws {
+    @Test("頭字語の表記が崩れた出力は自動 retry で valid になれば変換成功になる")
+    func lostAcronymAutomaticallyRetriesUntilValid() async throws {
         let provider = ScriptedConversionProvider()
         let (coordinator, _) = makeCoordinator(provider: provider)
 
         // 実機で観測したフロー: SWIFThaiigengodesu → モデルが
         // 「Swiftは、英語です」と表記崩れ + 意味置換した出力を返す。
-        coordinator.handle(.insert("SWIFThaiigengodesu"))
+        coordinator.handle(.insert("SWIFThaiigengodesugahenkansarenaidesu"))
         coordinator.handle(.requestConversion(.japanese))
         try await eventually { (await provider.pendingCount) == 1 }
-        #expect(await provider.receivedModelInputTexts == ["SWIFTはいいげんごです"])
-        await provider.resolveOldest(with: "Swiftは、英語です")
+        #expect(
+            await provider.receivedModelInputTexts
+                == ["SWIFTはいいげんごですがへんかんされないです"]
+        )
+        await provider.resolveOldest(with: "Swiftはいい言語ですが、機能されないです。")
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "SWIFTはいい言語ですが変換されないです")
+        try await eventually {
+            if case .converted = coordinator.state.phase { return true }
+            return false
+        }
+        #expect(coordinator.state.displayedText == "SWIFTはいい言語ですが変換されないです")
+        #expect(coordinator.state.retryCount == 1)
+        #expect(await provider.receivedAttempts == [0, 1])
+    }
+
+    @Test("頭字語の表記崩れが上限まで続いたら failed になり次の attempt を保持する")
+    func lostAcronymFailsAfterRetryLimit() async throws {
+        let provider = ScriptedConversionProvider()
+        let (coordinator, _) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("SWIFThaiigengodesugahenkansarenaidesu"))
+        coordinator.handle(.requestConversion(.japanese))
+        try await exhaustValidationRetries(
+            provider: provider,
+            with: "Swiftはいい言語ですが、機能されないです。"
+        )
         try await eventually {
             if case .failed = coordinator.state.phase { return true }
             return false
         }
-        #expect(coordinator.state.displayedText == "SWIFThaiigengodesu")
+        #expect(coordinator.state.displayedText == "SWIFThaiigengodesugahenkansarenaidesu")
+        #expect(coordinator.state.retryCount == 2)
+        #expect(await provider.receivedAttempts == [0, 1, 2])
     }
 
     @Test("スナップショットを壊す編集が provider のキャンセルとして観測される")
@@ -324,8 +361,7 @@ struct CompositionCoordinatorTests {
         // 現れないが、検証は元テキスト基準なので保護語の喪失を検出できる。
         coordinator.handle(.insert("bunwokakunin suru"))
         coordinator.handle(.requestConversion(.japanese))
-        try await eventually { (await provider.pendingCount) == 1 }
-        await provider.resolveOldest(with: "文を確認する")
+        try await exhaustValidationRetries(provider: provider, with: "文を確認する")
         try await eventually {
             if case .failed = coordinator.state.phase { return true }
             return false
@@ -457,13 +493,90 @@ struct CompositionCoordinatorTests {
 
         coordinator.handle(.insert("Claude Code de naosu"))
         coordinator.handle(.requestConversion(.english))
-        try await eventually { (await provider.pendingCount) == 1 }
-        await provider.resolveOldest(with: "Fix it with claude code")
+        try await exhaustValidationRetries(provider: provider, with: "Fix it with claude code")
         try await eventually {
             if case .failed = coordinator.state.phase { return true }
             return false
         }
         #expect(coordinator.state.displayedText == "Claude Code de naosu")
+    }
+
+    @Test("自動 retry 中の Escape は provider をキャンセルし後続結果を描画しない")
+    func escapeDuringAutomaticRetryCancelsPendingAttempt() async throws {
+        let provider = ScriptedConversionProvider()
+        await provider.setHonorsCancellation(false)
+        let (coordinator, recorder) = makeCoordinator(provider: provider)
+
+        coordinator.handle(.insert("SWIFThaiigengodesugahenkansarenaidesu"))
+        coordinator.handle(.requestConversion(.japanese))
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "Swiftはいい言語ですが、機能されないです。")
+        try await eventually { (await provider.pendingCount) == 1 }
+
+        coordinator.handle(.restoreSource)
+        #expect(coordinator.state.phase == .composing)
+        #expect(coordinator.state.displayedText == "SWIFThaiigengodesugahenkansarenaidesu")
+        try await eventually { (await provider.cancellationCount) == 1 }
+        let renderCount = recorder.views.count
+
+        await provider.resolveOldest(with: "SWIFTはいい言語ですが変換されないです")
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(recorder.views.count == renderCount)
+        #expect(coordinator.state.phase == .composing)
+        #expect(coordinator.state.displayedText == "SWIFThaiigengodesugahenkansarenaidesu")
+    }
+
+    @Test("自動 retry 中にスナップショットを壊す編集をしたら provider をキャンセルし後続結果を描画しない")
+    func editDuringAutomaticRetryCancelsPendingAttempt() async throws {
+        let provider = ScriptedConversionProvider()
+        await provider.setHonorsCancellation(false)
+        let (coordinator, recorder) = makeCoordinator(provider: provider)
+        let source = "SWIFThaiigengodesugahenkansarenaidesu"
+
+        coordinator.handle(.insert(source))
+        coordinator.handle(.requestConversion(.japanese))
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "Swiftはいい言語ですが、機能されないです。")
+        try await eventually { (await provider.pendingCount) == 1 }
+
+        coordinator.handle(.moveCursor(offset: -source.utf16.count))
+        coordinator.handle(.insert("x"))
+        #expect(coordinator.state.phase == .composing)
+        #expect(coordinator.state.displayedText == "x\(source)")
+        try await eventually { (await provider.cancellationCount) == 1 }
+        let renderCount = recorder.views.count
+
+        await provider.resolveOldest(with: "SWIFTはいい言語ですが変換されないです")
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(recorder.views.count == renderCount)
+        #expect(coordinator.state.phase == .composing)
+        #expect(coordinator.state.displayedText == "x\(source)")
+    }
+
+    @Test("自動 retry 中の commit は provider をキャンセルし後続結果を描画しない")
+    func commitDuringAutomaticRetryCancelsPendingAttempt() async throws {
+        let provider = ScriptedConversionProvider()
+        await provider.setHonorsCancellation(false)
+        let (coordinator, recorder) = makeCoordinator(provider: provider)
+        let source = "SWIFThaiigengodesugahenkansarenaidesu"
+
+        coordinator.handle(.insert(source))
+        coordinator.handle(.requestConversion(.japanese))
+        try await eventually { (await provider.pendingCount) == 1 }
+        await provider.resolveOldest(with: "Swiftはいい言語ですが、機能されないです。")
+        try await eventually { (await provider.pendingCount) == 1 }
+
+        coordinator.handle(.commit)
+        #expect(coordinator.state.phase == .idle)
+        #expect(recorder.last?.shouldCommit == true)
+        #expect(recorder.last?.committedText == source)
+        try await eventually { (await provider.cancellationCount) == 1 }
+        let renderCount = recorder.views.count
+
+        await provider.resolveOldest(with: "SWIFTはいい言語ですが変換されないです")
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(recorder.views.count == renderCount)
+        #expect(coordinator.state.phase == .idle)
     }
 
     @Test("英語変換では日本語固有の鉤括弧 unwrap が適用されない（target が検証へ届く）")

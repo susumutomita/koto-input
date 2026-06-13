@@ -130,7 +130,8 @@ public actor AppleFoundationModelsProvider: TextConversionProvider {
                 requestID: request.id,
                 compositionID: request.compositionID,
                 revision: request.revision,
-                convertedText: response.content
+                convertedText: response.content,
+                attempt: request.attempt
             )
         } catch is CancellationError {
             throw KotoError.cancelled

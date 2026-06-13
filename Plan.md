@@ -672,3 +672,30 @@ Issue 46（https://github.com/susumutomita/koto-input/issues/46 ）の実装。c
 - 問題: 配布手順が Homebrew の仕様変更（パス指定 cask インストールの廃止）で壊れており、さらに cask の `version` / `sha256` が v1.0.1 リリース後も手動更新されず 0.1.0 / `:no_check` のまま停滞していた。リリース zip 内の版数もタグと不一致だった。
 - 根本原因: 「tap を作るまでの暫定」と明記したパス指定運用が恒久化していた。cask の鮮度維持とバージョン刻印がリリースフローに組み込まれておらず、人手の更新に依存していた。
 - 予防策: リリースごとに追従が必要な配布メタデータは自動追従にする（tap 側 `sync-cask` と release workflow の刻印で構造化済み）。暫定運用を導入する時点で、恒久対応のフォローアップを同時に起票する。外部エコシステム（Homebrew 等）の breaking change はインストール手順の実地確認でしか発見できないため、リリース後に配布経路の実インストール確認を検証手順へ含める。
+
+### greedy デッドエンドの自動回復（Issue 48） - 2026-06-13
+
+#### 目的
+
+Issue 48（https://github.com/susumutomita/koto-input/issues/48 ）。頭字語を含む入力で初回 greedy 出力が validator に拒否されたあと、Shift + Space を押しても attempt 0 に戻り続ける無音失敗ループを解消する。
+
+#### タスク
+
+- [x] ドキュメント先行更新: ADR-0015 と architecture.md に failed 再要求・上限付き自動 retry の仕様を記録
+- [x] reducer: failed からの同一スナップショット再要求で attempt を引き継いで増やす
+- [x] coordinator: validator 拒否時だけ同一 Task 内で最大 2 回の自動 retry を行う
+- [x] テスト: scripted provider で failed 再要求、自動 retry、キャンセル停止を検証
+- [x] 品質フィクスチャ: `SWIFThaiigengodesugahenkansarenaidesu` を再現ケースとして追加
+- [ ] ゲート実行: staged harness → before-commit → swift-test
+
+#### 検証手順
+
+1. `swift build --package-path KotoInput` で実装ターゲットが compile。
+2. `swift test --package-path KotoInput` で reducer / coordinator / フィクスチャの新規テストが pass。
+3. `bun scripts/architecture-harness.ts --staged --fail-on=error` と `make before-commit` が green。
+
+#### 進捗ログ
+
+- 2026-06-13: Issue 48 を確認し、ADR-0015 を追加。ADR-0008 の「converted からの再抽選」を拡張し、failed からの再要求も同一スナップショットなら attempt を継続する判断を記録。coordinator は validator 拒否だけを同一 Task 内で最大 2 回自動 retry し、provider エラー・availability 失敗・キャンセルは retry しない設計にした。
+- 2026-06-13: `ConversionResult` と `conversionFailed` に attempt を通し、成功・失敗のどちらでも最後に試した attempt を reducer が保持するよう実装。scripted provider で `SWIFThaiigengodesugahenkansarenaidesu` の invalid→valid 自動 retry、上限到達後 failed、retry 中の編集・Escape・commit cancellation、failed からの手動 retry attempt 継続を固定。品質フィクスチャにも Issue 48 入力を追加。
+- 2026-06-13: ローカル検証は `swift build --package-path KotoInput` / `make swift-build` が成功。差分を一時 stage した状態で `make before-commit`（staged harness + textlint + biome）が green。`swift test --package-path KotoInput` / `make swift-test` はサンドボックス外で再実行してもローカル CommandLineTools に Swift Testing の `Testing` モジュールが無く、テストターゲットの compile 前に失敗した。Swift テストの最終確認は CI の macOS toolchain で行う。

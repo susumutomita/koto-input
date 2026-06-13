@@ -1,5 +1,7 @@
 import Foundation
 
+private let automaticValidationRetryLimit = 2
+
 /// composition 状態と変換タスクを所有する調整役。
 /// - 状態遷移は CompositionTransition.reduce（純粋関数）に委譲する。
 /// - 変換タスクは常に 1 本。新しい要求・編集・commit・cancel・deactivate で
@@ -164,6 +166,7 @@ public final class CompositionCoordinator {
                 requestID: request.id,
                 compositionID: request.compositionID,
                 revision: request.revision,
+                attempt: request.attempt,
                 error: error
             )
         }
@@ -179,33 +182,72 @@ public final class CompositionCoordinator {
             return failed(.modelUnavailable(reason))
         }
 
-        do {
-            let result = try await provider.convert(request)
-            switch ConversionOutputValidator.validate(
-                output: result.convertedText,
-                source: request.sourceText,
+        let maxAttempt = request.attempt + automaticValidationRetryLimit
+        var attempt = request.attempt
+        while attempt <= maxAttempt {
+            if Task.isCancelled { return nil }
+            let attemptRequest = ConversionRequest(
+                id: request.id,
+                compositionID: request.compositionID,
+                revision: request.revision,
+                sourceText: request.sourceText,
                 settings: request.settings,
-                target: request.target
-            ) {
-            case .success(let text):
-                return .conversionSucceeded(
-                    ConversionResult(
-                        requestID: request.id,
-                        compositionID: request.compositionID,
-                        revision: request.revision,
-                        convertedText: text
+                target: request.target,
+                attempt: attempt,
+                contextEntries: request.contextEntries
+            )
+            do {
+                let result = try await provider.convert(attemptRequest)
+                if Task.isCancelled { return nil }
+                switch ConversionOutputValidator.validate(
+                    output: result.convertedText,
+                    source: attemptRequest.sourceText,
+                    settings: attemptRequest.settings,
+                    target: attemptRequest.target
+                ) {
+                case .success(let text):
+                    return .conversionSucceeded(
+                        ConversionResult(
+                            requestID: attemptRequest.id,
+                            compositionID: attemptRequest.compositionID,
+                            revision: attemptRequest.revision,
+                            convertedText: text,
+                            attempt: attempt
+                        )
                     )
+                case .failure(let error):
+                    if attempt == maxAttempt {
+                        return .conversionFailed(
+                            requestID: attemptRequest.id,
+                            compositionID: attemptRequest.compositionID,
+                            revision: attemptRequest.revision,
+                            attempt: attempt,
+                            error: error
+                        )
+                    }
+                    attempt += 1
+                }
+            } catch is CancellationError {
+                return nil
+            } catch let error as KotoError {
+                if case .cancelled = error { return nil }
+                return .conversionFailed(
+                    requestID: attemptRequest.id,
+                    compositionID: attemptRequest.compositionID,
+                    revision: attemptRequest.revision,
+                    attempt: attempt,
+                    error: error
                 )
-            case .failure(let error):
-                return failed(error)
+            } catch {
+                return .conversionFailed(
+                    requestID: attemptRequest.id,
+                    compositionID: attemptRequest.compositionID,
+                    revision: attemptRequest.revision,
+                    attempt: attempt,
+                    error: .generationFailed(String(describing: error))
+                )
             }
-        } catch is CancellationError {
-            return nil
-        } catch let error as KotoError {
-            if case .cancelled = error { return nil }
-            return failed(error)
-        } catch {
-            return failed(.generationFailed(String(describing: error)))
         }
+        return nil
     }
 }
