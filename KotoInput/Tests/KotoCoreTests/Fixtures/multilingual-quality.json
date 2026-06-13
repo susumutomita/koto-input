@@ -27,6 +27,16 @@
     "mustNotAdd": ["承認"]
   },
   {
+    "id": "ja-acronym-greedy-deadend",
+    "source": "SWIFThaiigengodesugahenkansarenaidesu",
+    "targetLanguage": "ja",
+    "profile": "neutral",
+    "acceptableOutputs": ["SWIFTはいい言語ですが変換されないです"],
+    "rejectedOutputs": ["Swiftはいい言語ですが、機能されないです。"],
+    "mustPreserve": ["SWIFT"],
+    "mustNotAdd": ["機能", "変な発音"]
+  },
+  {
     "id": "en-technical-command",
     "source": "Claude Code de scripts/check.sh wo jikkou shite Issue 31 wo kakunin shimasu",
     "targetLanguage": "en",

@@ -76,12 +76,19 @@ public enum CompositionTransition {
             return selectCandidate(state, offset: offset)
         case .conversionSucceeded(let result):
             return conversionSucceeded(state, result: result)
-        case .conversionFailed(let requestID, let compositionID, let revision, let error):
+        case .conversionFailed(
+            let requestID,
+            let compositionID,
+            let revision,
+            let attempt,
+            let error
+        ):
             return conversionFailed(
                 state,
                 requestID: requestID,
                 compositionID: compositionID,
                 revision: revision,
+                attempt: attempt,
                 error: error
             )
         case .restoreSource:
@@ -230,17 +237,22 @@ public enum CompositionTransition {
             // 見せる価値がないため、状態も変えない）。
             return noop(state)
         }
-        // converted から編集せずに再要求された場合は、原文スナップショットから
-        // 変換し直し、表示も原文へ戻す（タイプ先行の prefix 整合を保つため）。
+        // converted / failed から編集せずに再要求された場合は、原文
+        // スナップショットから変換し直し、表示も原文へ戻す
+        // （タイプ先行の prefix 整合を保つため）。
         // 同じ（target, useContext）なら「再変換（候補の再抽選）」として
         // attempt を増やし、別の組なら attempt 0 から変換し直す（文脈の有無で
         // プロンプトが変わるため、別経路として greedy から始める。ADR-0013）。
         // Escape の復元先は常に原文のまま。
         let isReconversionFromSnapshot: Bool = {
-            if case .converted = state.phase, state.isSourcePreserved {
-                return true
+            switch state.phase {
+            case .converted:
+                return state.isSourcePreserved
+            case .failed:
+                return state.isSourcePreserved && state.displayedText == state.sourceText
+            case .idle, .composing, .converting:
+                return false
             }
-            return false
         }()
         var next = state
         let requestID = makeRequestID()
@@ -303,6 +315,7 @@ public enum CompositionTransition {
         let tail = String(state.displayedText.dropFirst(state.sourceText.count))
         var next = state
         next.activeRequestRevision = nil
+        next.retryCount = result.attempt
         // 表示が変換結果へ差し替わるため、かな形態巡回は終わる（converting 中の
         // 冪等な normalizeToKana で巡回状態が付いたまま成功するケース）。
         next.kanaCycleForm = nil
@@ -310,14 +323,14 @@ public enum CompositionTransition {
             next.displayedText = result.convertedText
             next.selection = .cursor(at: result.convertedText.utf16.count)
             next.phase = .converted(requestID: requestID)
-            // 検証通過済みの結果だけが候補になる。state の conversionTarget /
-            // retryCount は stale 照合を通過したこの結果の要求時の値なので、
-            // そのまま候補のメタデータとして使える。同一 text + target の候補が
-            // 既にあれば重複追加せず、その候補を選択し直す。
+            // 検証通過済みの結果だけが候補になる。target は stale 照合を
+            // 通過したこの結果の要求時の値、attempt は自動 retry を含む
+            // 実行済み attempt を使う。同一 text + target の候補が既にあれば
+            // 重複追加せず、その候補を選択し直す。
             let candidate = ConversionCandidate(
                 text: result.convertedText,
                 target: state.conversionTarget,
-                attempt: state.retryCount
+                attempt: result.attempt
             )
             if let existing = next.candidates.firstIndex(where: {
                 $0.text == candidate.text && $0.target == candidate.target
@@ -358,6 +371,7 @@ public enum CompositionTransition {
         requestID: ConversionRequestID,
         compositionID: CompositionID,
         revision: UInt64,
+        attempt: Int,
         error: KotoError
     ) -> Outcome {
         if case .cancelled = error {
@@ -377,6 +391,7 @@ public enum CompositionTransition {
         // 保持したまま、回復可能なエラーを表示する。
         next.phase = .failed(message: error.userMessage)
         next.activeRequestRevision = nil
+        next.retryCount = attempt
         return Outcome(state: next, effect: .none, view: .from(state: next))
     }
 

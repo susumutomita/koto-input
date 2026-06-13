@@ -56,7 +56,8 @@ struct CompositionTransitionTests {
             requestID: requestID,
             compositionID: retrying.compositionID,
             revision: retrying.activeRequestRevision ?? 0,
-            convertedText: convertedText
+            convertedText: convertedText,
+            attempt: retrying.retryCount
         )
         return CompositionTransition.reduce(retrying, .conversionSucceeded(result)).state
     }
@@ -154,6 +155,75 @@ struct CompositionTransitionTests {
                     attempt: 1
                 )
         )
+    }
+
+    @Test("failed から編集せずに再要求すると attempt を引き継いで増やす")
+    func failedRetryKeepsAttemptProgress() {
+        let before = converting("kyou")
+        let failed = CompositionTransition.reduce(
+            before,
+            .conversionFailed(
+                requestID: fixedRequestID,
+                compositionID: before.compositionID,
+                revision: before.revision,
+                attempt: 2,
+                error: .emptyResponse
+            )
+        ).state
+        let retryID = ConversionRequestID()
+        let outcome = CompositionTransition.reduce(
+            failed,
+            .requestConversion(.japanese),
+            makeRequestID: { retryID }
+        )
+        #expect(outcome.state.phase == .converting(requestID: retryID))
+        #expect(outcome.state.sourceText == "kyou")
+        #expect(outcome.state.displayedText == "kyou")
+        #expect(outcome.state.retryCount == 3)
+        #expect(
+            outcome.effect
+                == .startConversion(
+                    requestID: retryID,
+                    compositionID: failed.compositionID,
+                    revision: outcome.state.revision,
+                    sourceText: "kyou",
+                    target: .japanese,
+                    useContext: false,
+                    attempt: 3
+                )
+        )
+    }
+
+    @Test("タイプ先行を含む failed からの再要求は表示中テキストを新規スナップショットにする")
+    func failedRetryAfterTypeAheadUsesDisplayedTextAsNewSource() {
+        let before = converting("kyou")
+        let appended = CompositionTransition.reduce(before, .insert("x")).state
+        let failed = CompositionTransition.reduce(
+            appended,
+            .conversionFailed(
+                requestID: fixedRequestID,
+                compositionID: appended.compositionID,
+                revision: appended.activeRequestRevision ?? 0,
+                attempt: 2,
+                error: .emptyResponse
+            )
+        ).state
+        let retryID = ConversionRequestID()
+        let outcome = CompositionTransition.reduce(
+            failed,
+            .requestConversion(.japanese),
+            makeRequestID: { retryID }
+        )
+        #expect(outcome.state.phase == .converting(requestID: retryID))
+        #expect(outcome.state.sourceText == "kyoux")
+        #expect(outcome.state.displayedText == "kyoux")
+        #expect(outcome.state.retryCount == 0)
+        if case .startConversion(_, _, _, let sourceText, _, _, let attempt) = outcome.effect {
+            #expect(sourceText == "kyoux")
+            #expect(attempt == 0)
+        } else {
+            Issue.record("startConversion が発行されなかった: \(outcome.effect)")
+        }
     }
 
     @Test("再変換中も Escape で原文へ戻れる")
@@ -293,7 +363,8 @@ struct CompositionTransitionTests {
                     requestID: retryID,
                     compositionID: retried.compositionID,
                     revision: retried.activeRequestRevision ?? 0,
-                    convertedText: "京"
+                    convertedText: "京",
+                    attempt: retried.retryCount
                 )
             )
         ).state
@@ -616,6 +687,7 @@ struct CompositionTransitionTests {
                 requestID: fixedRequestID,
                 compositionID: appended.compositionID,
                 revision: appended.activeRequestRevision ?? 0,
+                attempt: appended.retryCount,
                 error: .emptyResponse
             )
         ).state
@@ -700,6 +772,7 @@ struct CompositionTransitionTests {
                 requestID: fixedRequestID,
                 compositionID: before.compositionID,
                 revision: before.revision,
+                attempt: before.retryCount,
                 error: .modelUnavailable("Apple Intelligence が無効です。")
             )
         )
@@ -722,6 +795,7 @@ struct CompositionTransitionTests {
                 requestID: fixedRequestID,
                 compositionID: before.compositionID,
                 revision: before.revision,
+                attempt: before.retryCount,
                 error: .cancelled
             )
         )
@@ -748,6 +822,7 @@ struct CompositionTransitionTests {
                 requestID: fixedRequestID,
                 compositionID: before.compositionID,
                 revision: before.revision,
+                attempt: before.retryCount,
                 error: .emptyResponse
             )
         ).state
@@ -1214,7 +1289,8 @@ struct CompositionTransitionTests {
             requestID: retryID,
             compositionID: appended.compositionID,
             revision: appended.activeRequestRevision ?? 0,
-            convertedText: "京"
+            convertedText: "京",
+            attempt: appended.retryCount
         )
         let outcome = CompositionTransition.reduce(appended, .conversionSucceeded(result))
         #expect(outcome.state.displayedText == "京x")
