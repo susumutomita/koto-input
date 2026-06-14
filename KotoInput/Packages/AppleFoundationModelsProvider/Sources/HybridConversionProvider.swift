@@ -13,12 +13,13 @@ import KotoCore
 ///
 /// convert の流れ:
 ///   1. reading = request.modelInputText（前段かな化済み）。
-///   2. draft = LatticeConverter.convert(reading).best（mozc 全辞書 + 連接コストの
-///      Viterbi。ロード未完なら nil → AI へ素の読みを渡す）。
-///   3. AI に reading（[INPUT]）と draft（[DRAFT]）と contextEntries を渡し、草案を
-///      手がかりに正しい単語を選ばせて整形し、ConversionOutputValidator を通す。
+///   2. candidates = LatticeConverter.nBest(reading)（mozc 全辞書 + 連接コストの
+///      Viterbi の上位 K 候補。先頭が単一最良。ロード未完なら空）。
+///   3. AI に reading（[INPUT]）と candidates（[CANDIDATES]）と contextEntries を
+///      渡し、候補から最も自然なものを選ばせて整形し、ConversionOutputValidator を
+///      通す（辞書が候補を漏れなく出し、AI が文脈で選ぶ分担）。
 ///   4. 検証成功なら AI 出力を確定。AI が不可用・未準備・失敗・検証 NG のときは
-///      draft（無ければ読み）を確定フォールバックとして返す。
+///      辞書最良（candidates.first、無ければ読み）を確定フォールバックとして返す。
 ///
 /// availability: 辞書ラティス（または読みフォールバック）が常に一発変換を成立
 /// させるため常に .available を返す。
@@ -81,28 +82,35 @@ public actor HybridConversionProvider: TextConversionProvider {
             }
         }
 
-        // 1) 読み（かな化済み）を辞書ラティスで変換し草案を得る（actor 内で遅延
-        //    ロード・変換。ロード未完/失敗なら draft は nil）。
+        // 1) 読み（かな化済み）を辞書ラティスで n-best 変換し、上位候補を得る
+        //    （actor 内で遅延ロード・変換。ロード未完/失敗なら空）。先頭が単一最良。
         let reading = request.modelInputText
-        let draft = ensureLattice()?.convert(reading: reading).best
+        let candidates = ensureLattice()?.nBest(
+            reading: reading, maxCandidates: Self.candidateCount
+        ) ?? []
+        let best = candidates.first
 
-        // 2) AI が利用可能なら、読みと草案を渡して単語選択・整形させる。
+        // 2) AI が利用可能なら、読みと候補列を渡して候補から単語選択・整形させる。
         if case .available = await aiProvider.availability() {
-            if let aiText = await aiConvert(request: request, draft: draft) {
-                // 辞書認識の no-op ガード（ADR-0016）。辞書が漢字化できた（draft が
+            if let aiText = await aiConvert(request: request, candidates: candidates) {
+                // 辞書認識の no-op ガード（ADR-0016）。辞書が漢字化できた（best が
                 // 空でなく全かなでもない）のに AI が全かなへ戻したら、AI の据え置きと
-                // みなして draft を優先する。
-                if let draft, Self.isAllHiragana(aiText), !draft.isEmpty,
-                    !Self.isAllHiragana(draft)
+                // みなして辞書最良を優先する。
+                if let best, Self.isAllHiragana(aiText), !best.isEmpty,
+                    !Self.isAllHiragana(best)
                 {
-                    return makeResult(request: request, text: draft)
+                    return makeResult(request: request, text: best)
                 }
                 return makeResult(request: request, text: aiText)
             }
         }
-        // フォールバック: 草案（無ければ読みそのもの）を確定する。
-        return makeResult(request: request, text: draft ?? reading)
+        // フォールバック: 辞書最良（無ければ読みそのもの）を確定する。
+        return makeResult(request: request, text: best ?? reading)
     }
+
+    /// AI に渡すラティス上位候補の数。多すぎるとトークンが増え、少なすぎると
+    /// 正解が候補に入らない。
+    private static let candidateCount = 6
 
     /// 本文がすべてひらがな（と長音符）かを判定する。辞書認識 no-op ガードに使う。
     /// 空白・句読点は字種判定の対象外として無視し、「ほう ほう」「ほうほう。」の
@@ -130,9 +138,10 @@ public actor HybridConversionProvider: TextConversionProvider {
 
     /// AI 段を呼び、出力を ConversionOutputValidator に通す。検証成功なら整形済み
     /// テキストを、不可用・例外・検証 NG なら nil（フォールバック指示）を返す。
-    private func aiConvert(request: ConversionRequest, draft: String?) async -> String? {
-        // AI には読み（元 request の sourceText 由来）を [INPUT]、辞書ラティスの草案を
-        // [DRAFT] として渡す。検証・フォールバック判定は元 request の sourceText 基準。
+    private func aiConvert(request: ConversionRequest, candidates: [String]) async -> String? {
+        // AI には読み（元 request の sourceText 由来）を [INPUT]、辞書ラティスの上位
+        // 候補を [CANDIDATES] として渡す。検証・フォールバック判定は元 request の
+        // sourceText 基準。
         let aiRequest = ConversionRequest(
             id: request.id,
             compositionID: request.compositionID,
@@ -142,7 +151,7 @@ public actor HybridConversionProvider: TextConversionProvider {
             target: request.target,
             attempt: request.attempt,
             contextEntries: request.contextEntries,
-            dictionaryDraft: draft
+            dictionaryCandidates: candidates
         )
         let aiOutput: String
         do {

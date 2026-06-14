@@ -19,11 +19,12 @@ public struct ConversionRequest: Sendable {
     /// スナップショットし、リクエストは不変のまま。空なら [CONTEXT] を
     /// 出さず、プロンプトは従来と同一になる。
     public let contextEntries: [String]
-    /// 辞書ラティス（LatticeConverter）が出した一次変換の草案（ADR-0016）。
-    /// AI に [DRAFT] セクションで渡し、読み（[INPUT]）に対する単語選択の
-    /// 強いヒントにする。nil（既定）なら [DRAFT] を出さず、プロンプトは従来と
+    /// 辞書ラティス（LatticeConverter）が出した上位候補（コスト昇順、先頭が
+    /// 単一最良、ADR-0016）。AI に [CANDIDATES] セクションで渡し、自由生成でなく
+    /// 「候補から選ぶ」制約タスクにして、読み（[INPUT]）に対する単語選択の質を
+    /// 安定させる。空（既定）なら [CANDIDATES] を出さず、プロンプトは従来と
     /// バイト単位で同一になる。HybridConversionProvider が AI 段の要求に載せる。
-    public let dictionaryDraft: String?
+    public let dictionaryCandidates: [String]
 
     /// モデルへ渡すかな化済み入力。プロンプト構築にのみ使う。
     /// 分かち書きなしローマ字の弱点は言語によらないため、前段かな化は
@@ -45,7 +46,7 @@ public struct ConversionRequest: Sendable {
         target: ConversionTarget = .japanese,
         attempt: Int = 0,
         contextEntries: [String] = [],
-        dictionaryDraft: String? = nil
+        dictionaryCandidates: [String] = []
     ) {
         self.id = id
         self.compositionID = compositionID
@@ -55,7 +56,7 @@ public struct ConversionRequest: Sendable {
         self.target = target
         self.attempt = attempt
         self.contextEntries = contextEntries
-        self.dictionaryDraft = dictionaryDraft
+        self.dictionaryCandidates = dictionaryCandidates
     }
 }
 

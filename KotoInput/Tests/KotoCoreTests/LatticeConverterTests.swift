@@ -11,6 +11,30 @@ struct LatticeConverterTests {
         }
     }()
 
+    @Test("nBest は上位候補をコスト昇順で返し、先頭は単一最良と一致する")
+    func nBestReturnsRankedCandidates() {
+        for reading in ["ほうほう", "わたしはだれ", "きょうはいいてんきです", "にほんごをにゅうりょく"] {
+            let best = LatticeConverterTests.lattice.convert(reading: reading).best
+            let candidates = LatticeConverterTests.lattice.nBest(reading: reading, maxCandidates: 8)
+            #expect(!candidates.isEmpty, "\(reading) の候補が空")
+            #expect(candidates.first == best, "\(reading) の先頭候補が単一最良と不一致")
+            #expect(Set(candidates).count == candidates.count, "\(reading) の候補に重複")
+        }
+    }
+
+    @Test("nBest は決定的（同一読み → 同一候補列）")
+    func nBestIsDeterministic() {
+        let a = LatticeConverterTests.lattice.nBest(reading: "わたしはだれ", maxCandidates: 8)
+        let b = LatticeConverterTests.lattice.nBest(reading: "わたしはだれ", maxCandidates: 8)
+        #expect(a == b)
+    }
+
+    @Test("nBest: 空読み・0 件要求は空")
+    func nBestEdgeCases() {
+        #expect(LatticeConverterTests.lattice.nBest(reading: "", maxCandidates: 5).isEmpty)
+        #expect(LatticeConverterTests.lattice.nBest(reading: "ほうほう", maxCandidates: 0).isEmpty)
+    }
+
     @Test("代表的な読みを正しく漢字化する")
     func convertsRepresentativeReadings() {
         let cases: [(String, String)] = [
@@ -65,5 +89,19 @@ struct LatticeConverterTests {
         let perMs = Double(DispatchTime.now().uptimeNanoseconds - start)
             / Double(iterations) / 1_000_000.0
         #expect(perMs < 10.0, "変換が遅すぎる: \(perMs) ms/回")
+    }
+
+    @Test("nBest も打鍵経路に耐える速度で返る")
+    func nBestIsFast() {
+        let bench = "わたしはきょうがっこうにいってにほんごをべんきょうした"
+        let iterations = 500
+        for _ in 0..<20 { _ = LatticeConverterTests.lattice.nBest(reading: bench, maxCandidates: 6) }
+        let start = DispatchTime.now().uptimeNanoseconds
+        for _ in 0..<iterations {
+            _ = LatticeConverterTests.lattice.nBest(reading: bench, maxCandidates: 6)
+        }
+        let perMs = Double(DispatchTime.now().uptimeNanoseconds - start)
+            / Double(iterations) / 1_000_000.0
+        #expect(perMs < 15.0, "nBest が遅すぎる: \(perMs) ms/回")
     }
 }
