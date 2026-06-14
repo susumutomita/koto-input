@@ -7,8 +7,9 @@ import Foundation
 /// 文脈境界を正しく切れる。決定的（同一読み → 同一既定出力）。
 ///
 /// 役割分担: 辞書ラティスが「正解の表記を候補に必ず含める」決定的な一次変換を
-/// 担い、AI（AppleFoundationModelsProvider）が文脈での再ランクと整形を担う
-/// （HybridConversionProvider が両者を合成する）。
+/// 担い、AI（AppleFoundationModelsProvider）が文脈での単語選択・整形を担う。
+/// `nBest` が出す上位候補を AI に渡せば、自由生成でなく「候補から選ぶ」制約
+/// タスクになり、弱いオンデバイスモデルでも質が安定する（HybridConversionProvider）。
 public struct LatticeConverter: Sendable {
     /// 変換結果の 1 セグメント。読みと候補表記（既定 = 先頭）。
     public struct Segment: Sendable, Equatable {
@@ -41,6 +42,9 @@ public struct LatticeConverter: Sendable {
     private static let unknownCost = 10000
     /// 全カタカナ表記（ひらがな読みに対する音写）への加点。
     private static let katakanaPenalty = 5000
+    /// n-best 列挙の安全弁（pop 回数の上限）。
+    private static let nBestPopLimit = 50000
+    private static let infinity = Int.max / 4
 
     /// 表記がすべてカタカナ（ァ〜ヶ・長音符・中黒）か。
     private static func isAllKatakana(_ s: String) -> Bool {
@@ -72,16 +76,27 @@ public struct LatticeConverter: Sendable {
         let surface: String
         let leftID: Int
         let rightID: Int
+        /// 単語生起コスト（カタカナ罰則込み）。
+        let wordCost: Int
+        /// 前向き最小コスト（BOS → このノードの末尾）。
         var bestCost: Int
+        /// 単一最良経路の前ノード index（n-best では使わない）。
         var prev: Int
     }
 
-    /// 読み（かな）を Viterbi 最短経路で変換する。
-    public func convert(reading: String) -> Result {
-        let query = [UInt8](reading.utf8)
-        guard !query.isEmpty else { return Result(best: "", segments: []) }
+    /// ラティス（ノード列と位置→ノードの索引）。BOS は常に index 0
+    /// （start = end = 0, rid = 0, cost 0）。
+    private struct Lattice {
+        var nodes: [Node]
+        /// 位置（byte）→ そこで終わるノード index 群。
+        var endingAt: [[Int]]
+        /// 位置（byte）→ そこから始まるノード index 群。
+        var startingAt: [[Int]]
+        let end: Int
+    }
 
-        // 文字境界（UTF-8 リード byte 単位）を列挙する。
+    /// 読みからラティスを構築し、前向き Viterbi（bestCost / prev）まで埋める。
+    private func buildLattice(query: [UInt8]) -> Lattice {
         var bounds: [Int] = []
         var p = 0
         while p < query.count {
@@ -92,18 +107,22 @@ public struct LatticeConverter: Sendable {
         let end = query.count
 
         var nodes: [Node] = []
-        // 位置（byte）→ そこで終わるノード index 群。
         var endingAt = [[Int]](repeating: [], count: end + 1)
-        // BOS（位置 0 で終わる仮想ノード、rid = 0、コスト 0）。
-        nodes.append(Node(start: 0, end: 0, surface: "", leftID: 0, rightID: 0, bestCost: 0, prev: -1))
+        var startingAt = [[Int]](repeating: [], count: end + 1)
+        // BOS。
+        nodes.append(
+            Node(
+                start: 0, end: 0, surface: "", leftID: 0, rightID: 0,
+                wordCost: 0, bestCost: 0, prev: -1
+            )
+        )
         endingAt[0] = [0]
 
         for start in bounds where start < end {
             let preds = endingAt[start]
-            if preds.isEmpty { continue }  // BOS から到達不能（未知語ノードで通常は到達する）
+            if preds.isEmpty { continue }
 
             var starting: [(end: Int, surface: String, lid: Int, rid: Int, cost: Int)] = []
-            // 辞書ノード（接頭辞一致する全長さ・全表記）。
             for match in dictionary.matchingPrefixes(of: query, from: start, charBoundaries: bounds) {
                 for entry in match.entries {
                     starting.append(
@@ -111,50 +130,58 @@ public struct LatticeConverter: Sendable {
                     )
                 }
             }
-            // 未知語ノード（1 文字、かなのまま）。辞書が空でもラティスを連結に保つ。
             let next = start + Self.utf8Width(query[start])
             let kana = String(decoding: query[start..<next], as: UTF8.self)
             starting.append((next, kana, Self.unknownPOS, Self.unknownPOS, Self.unknownCost))
 
-            for var cand in starting {
-                // カタカナ罰則: ひらがな読みに対する全カタカナ表記（固有名詞の
-                // 音写など）は通常テキストでは誤りが多い。連接コストが少ない分だけ
-                // 長いカタカナ語が正しい短い分割に勝つのを抑える。読みに長音符 ー を
-                // 含む借用語（こーひー→コーヒー 等）は罰則対象にしない。
+            for cand in starting {
+                var wordCost = cand.cost
+                // カタカナ罰則: ひらがな読みに対する全カタカナ表記（固有名詞の音写
+                // など）は通常テキストでは誤りが多い。連接コストが少ない分だけ長い
+                // カタカナ語が正しい短い分割に勝つのを抑える。読みに長音符 ー を含む
+                // 借用語（こーひー→コーヒー 等）は罰則対象にしない。
                 let spanReading = query[start..<cand.end]
                 if Self.isAllKatakana(cand.surface), !spanReading.contains(0xBC /* ー の末尾 byte */) {
-                    cand.cost += Self.katakanaPenalty
+                    wordCost += Self.katakanaPenalty
                 }
                 var bestCost = Int.max
                 var bestPrev = -1
                 for predIdx in preds {
                     let pred = nodes[predIdx]
-                    let trans = connection.cost(rightID: pred.rightID, leftID: cand.lid)
-                    let c = pred.bestCost + trans
+                    let c = pred.bestCost + connection.cost(rightID: pred.rightID, leftID: cand.lid)
                     if c < bestCost {
                         bestCost = c
                         bestPrev = predIdx
                     }
                 }
                 if bestPrev < 0 { continue }
-                let node = Node(
-                    start: start,
-                    end: cand.end,
-                    surface: cand.surface,
-                    leftID: cand.lid,
-                    rightID: cand.rid,
-                    bestCost: bestCost + cand.cost,
-                    prev: bestPrev
+                nodes.append(
+                    Node(
+                        start: start, end: cand.end, surface: cand.surface,
+                        leftID: cand.lid, rightID: cand.rid, wordCost: wordCost,
+                        bestCost: bestCost + wordCost, prev: bestPrev
+                    )
                 )
-                nodes.append(node)
-                endingAt[cand.end].append(nodes.count - 1)
+                let idx = nodes.count - 1
+                endingAt[cand.end].append(idx)
+                startingAt[start].append(idx)
             }
         }
+        return Lattice(nodes: nodes, endingAt: endingAt, startingAt: startingAt, end: end)
+    }
 
-        // EOS: 終端で終わるノードから、EOS（lid = 0）への連接を足して最小を選ぶ。
+    /// 読み（かな）を Viterbi 最短経路で変換する。
+    public func convert(reading: String) -> Result {
+        let query = [UInt8](reading.utf8)
+        guard !query.isEmpty else { return Result(best: "", segments: []) }
+
+        let lattice = buildLattice(query: query)
+        let nodes = lattice.nodes
+        let end = lattice.end
+
         var bestEnd = -1
         var bestEndCost = Int.max
-        for idx in endingAt[end] {
+        for idx in lattice.endingAt[end] {
             let node = nodes[idx]
             let c = node.bestCost + connection.cost(rightID: node.rightID, leftID: 0)
             if c < bestEndCost {
@@ -164,10 +191,9 @@ public struct LatticeConverter: Sendable {
         }
         guard bestEnd >= 0 else { return Result(best: reading, segments: []) }
 
-        // 逆順に辿って経路を復元する。
         var chain: [Int] = []
         var cur = bestEnd
-        while cur > 0 {  // BOS（index 0）は除く
+        while cur > 0 {
             chain.append(cur)
             cur = nodes[cur].prev
         }
@@ -178,7 +204,6 @@ public struct LatticeConverter: Sendable {
         for idx in chain {
             let node = nodes[idx]
             let segReading = String(decoding: query[node.start..<node.end], as: UTF8.self)
-            // 採用表記を先頭に、同じ読みの代替表記を cost 順で続ける。
             let alts = dictionary.entries(of: query, start: node.start, end: node.end)
                 .map(\.surface)
             var candidates = [node.surface]
@@ -187,9 +212,79 @@ public struct LatticeConverter: Sendable {
             }
             segments.append(Segment(reading: segReading, candidates: candidates))
         }
+        return Result(best: segments.map(\.best).joined(), segments: segments)
+    }
 
-        let best = segments.map(\.best).joined()
-        return Result(best: best, segments: segments)
+    /// 読みに対する上位 maxCandidates 個の異なる変換文字列を、コスト昇順で返す
+    /// （先頭が単一最良）。AI に「候補から選ぶ」制約タスクとして渡す用途。
+    /// 後方最小コスト（bwd）を許容ヒューリスティックにした A* で厳密 k-best を取る。
+    public func nBest(reading: String, maxCandidates: Int) -> [String] {
+        let query = [UInt8](reading.utf8)
+        guard !query.isEmpty, maxCandidates > 0 else { return [] }
+        let lattice = buildLattice(query: query)
+        let nodes = lattice.nodes
+        let end = lattice.end
+        guard !lattice.endingAt[end].isEmpty else { return [] }
+
+        // 後方最小コスト bwd[node] = ノード末尾 → EOS の最小コスト。
+        var bwd = [Int](repeating: Self.infinity, count: nodes.count)
+        // 末尾で終わるノードは EOS への連接コスト。
+        for idx in lattice.endingAt[end] {
+            bwd[idx] = connection.cost(rightID: nodes[idx].rightID, leftID: 0)
+        }
+        // end の降順にノードを処理する（end が大きいほど EOS に近い）。
+        let order = nodes.indices.sorted { nodes[$0].end > nodes[$1].end }
+        for idx in order where nodes[idx].end < end {
+            let node = nodes[idx]
+            var best = bwd[idx]
+            for nextIdx in lattice.startingAt[node.end] {
+                let next = nodes[nextIdx]
+                guard bwd[nextIdx] < Self.infinity else { continue }
+                let c = connection.cost(rightID: node.rightID, leftID: next.leftID)
+                    + next.wordCost + bwd[nextIdx]
+                if c < best { best = c }
+            }
+            bwd[idx] = best
+        }
+
+        // A*: 状態 = (ノード index, 親状態 index)。優先度 = accum + bwd[node]。
+        struct State { let node: Int; let parent: Int }
+        var states: [State] = [State(node: 0, parent: -1)]  // BOS
+        var heap = MinHeap()
+        heap.push(priority: bwd[0], accum: 0, state: 0)
+
+        var results: [String] = []
+        var seen = Set<String>()
+        var pops = 0
+        while let top = heap.pop(), pops < Self.nBestPopLimit {
+            pops += 1
+            let node = nodes[states[top.state].node]
+            if node.end == end {
+                // 完成経路。表記を親を辿って復元する（BOS は除く）。
+                var surfaces: [String] = []
+                var s = top.state
+                while s > 0 {  // states[0] は BOS
+                    surfaces.append(nodes[states[s].node].surface)
+                    s = states[s].parent
+                }
+                let text = surfaces.reversed().joined()
+                if !text.isEmpty, seen.insert(text).inserted {
+                    results.append(text)
+                    if results.count >= maxCandidates { break }
+                }
+                continue
+            }
+            for nextIdx in lattice.startingAt[node.end] {
+                let next = nodes[nextIdx]
+                let newAccum = top.accum
+                    + connection.cost(rightID: node.rightID, leftID: next.leftID)
+                    + next.wordCost
+                guard bwd[nextIdx] < Self.infinity else { continue }
+                states.append(State(node: nextIdx, parent: top.state))
+                heap.push(priority: newAccum + bwd[nextIdx], accum: newAccum, state: states.count - 1)
+            }
+        }
+        return results
     }
 
     private static func utf8Width(_ lead: UInt8) -> Int {
@@ -197,5 +292,47 @@ public struct LatticeConverter: Sendable {
         if lead < 0xE0 { return 2 }
         if lead < 0xF0 { return 3 }
         return 4
+    }
+}
+
+/// n-best A* 用の最小ヒープ（priority 昇順）。同 priority は挿入順を保たないが
+/// 厳密 k-best には影響しない（同コスト経路はいずれも列挙される）。
+private struct MinHeap {
+    private struct Item { let priority: Int; let accum: Int; let state: Int }
+    private var items: [Item] = []
+
+    var isEmpty: Bool { items.isEmpty }
+
+    mutating func push(priority: Int, accum: Int, state: Int) {
+        items.append(Item(priority: priority, accum: accum, state: state))
+        var i = items.count - 1
+        while i > 0 {
+            let parent = (i - 1) / 2
+            if items[parent].priority <= items[i].priority { break }
+            items.swapAt(parent, i)
+            i = parent
+        }
+    }
+
+    mutating func pop() -> (priority: Int, accum: Int, state: Int)? {
+        guard !items.isEmpty else { return nil }
+        let top = items[0]
+        let last = items.removeLast()
+        if !items.isEmpty {
+            items[0] = last
+            var i = 0
+            let n = items.count
+            while true {
+                let l = 2 * i + 1
+                let r = 2 * i + 2
+                var smallest = i
+                if l < n, items[l].priority < items[smallest].priority { smallest = l }
+                if r < n, items[r].priority < items[smallest].priority { smallest = r }
+                if smallest == i { break }
+                items.swapAt(i, smallest)
+                i = smallest
+            }
+        }
+        return (top.priority, top.accum, top.state)
     }
 }

@@ -19,7 +19,7 @@ actor ScriptedAIProvider: TextConversionProvider {
     private(set) var convertCount = 0
     private(set) var receivedSourceTexts: [String] = []
     private(set) var receivedContextEntries: [[String]] = []
-    private(set) var receivedDrafts: [String?] = []
+    private(set) var receivedCandidates: [[String]] = []
 
     init(availability: ProviderAvailability = .available, behavior: Behavior = .returns("")) {
         self.availabilityResult = availability
@@ -34,7 +34,7 @@ actor ScriptedAIProvider: TextConversionProvider {
         convertCount += 1
         receivedSourceTexts.append(request.sourceText)
         receivedContextEntries.append(request.contextEntries)
-        receivedDrafts.append(request.dictionaryDraft)
+        receivedCandidates.append(request.dictionaryCandidates)
         switch behavior {
         case .returns(let text):
             return ConversionResult(
@@ -87,16 +87,18 @@ struct HybridConversionProviderTests {
         #expect(result.convertedText == "方法を確認する")
     }
 
-    @Test("AI に読み（[INPUT]）と辞書草案（[DRAFT]）と文脈が渡る")
-    func passesReadingDraftAndContextToAI() async throws {
+    @Test("AI に読み（[INPUT]）と辞書候補（[CANDIDATES]）と文脈が渡る")
+    func passesReadingCandidatesAndContextToAI() async throws {
         let ai = ScriptedAIProvider(behavior: .returns("方法"))
         let provider = makeProvider(ai)
         let context = ["前の文脈"]
         _ = try await provider.convert(makeRequest("houhou", context: context))
         #expect(await ai.receivedContextEntries == [context])
-        // AI の sourceText は元の読み（ローマ字）、草案は辞書ラティスの最良。
+        // AI の sourceText は元の読み（ローマ字）、候補は辞書ラティスの上位（先頭=最良）。
         #expect(await ai.receivedSourceTexts.first == "houhou")
-        #expect(await ai.receivedDrafts.first == "方法")
+        let candidates = await ai.receivedCandidates.first ?? []
+        #expect(candidates.first == "方法")
+        #expect(candidates.contains("方法"))
     }
 
     @Test("AI が unavailable のときは辞書草案をフォールバック確定する")
