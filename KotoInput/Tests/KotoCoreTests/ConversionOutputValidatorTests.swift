@@ -231,6 +231,28 @@ struct ConversionOutputValidatorTests {
         #expect(message.contains("Claude Code"))
     }
 
+    // MARK: - 全かな出力の受理（no-op 判定は provider が辞書とともに行う）
+
+    @Test("日本語ターゲットでも全かな出力を字種だけで no-op 棄却せず受理する")
+    func japaneseAllKanaOutputPasses() {
+        // 出力だけを見ても「未変換の echo（ほうほう）」と「正規のかな表記
+        // （あれをやっておいて）」は区別できない。区別には辞書シグナルが要るため、
+        // no-op の真偽判定は HybridConversionProvider 層に置く（ADR-0016）。
+        // validator は字種で棄却せず、空・長さ・保護語・頭字語だけを見る。
+        let echo = ConversionOutputValidator.validate(
+            output: "ほうほう",
+            source: "houhou",
+            settings: .default
+        )
+        #expect(echo == .success("ほうほう"))
+        let kanaPhrase = ConversionOutputValidator.validate(
+            output: "あれをやっておいて",
+            source: "arewoyatteoite",
+            settings: .default
+        )
+        #expect(kanaPhrase == .success("あれをやっておいて"))
+    }
+
     // MARK: - 多言語変換ターゲット
 
     @Test("英語ターゲットでは出力末尾の句点を strip しない")

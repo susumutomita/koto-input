@@ -18,7 +18,16 @@ let package = Package(
     targets: [
         .target(
             name: "KotoCore",
-            path: "Packages/KotoCore/Sources"
+            path: "Packages/KotoCore/Sources",
+            resources: [
+                // mozc dictionary_oss（BSD-3-Clause）全辞書と連接行列を
+                // raw DEFLATE 圧縮したバイナリ（ADR-0016）。dictionary.bin は
+                // 読み→表記/POS/コスト、connection.bin は POS 間連接コスト。
+                // 生成は Tools/mozc-dictionary/build-dictionary.sh、帰属は
+                // リポジトリ直下 THIRD-PARTY-LICENSES。Bundle.module から読む。
+                .copy("Resources/dictionary.bin"),
+                .copy("Resources/connection.bin"),
+            ]
         ),
         .target(
             name: "AppleFoundationModelsProvider",
