@@ -25,6 +25,15 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_PATH/KotoInputMethod" "$APP_DIR/Contents/MacOS/KotoInputMethod"
 cp "$PACKAGE_PATH/Apps/KotoInputMethod/Info.plist" "$APP_DIR/Contents/Info.plist"
 
+# SwiftPM リソースバンドル内の辞書バイナリ（dictionary.bin / connection.bin 等）を
+# .app の Contents/Resources へ直接コピーする。読み込み側（BinaryResource.data）は
+# 配布 .app では Bundle.main（= Contents/Resources）から探すため、ここに置く。
+# バンドルを .app ルートへ置くと codesign が "unsealed contents present in the
+# bundle root" で失敗するので、必ず Contents/Resources（署名可能な正規の場所）へ
+# 置く。署名前に行う。
+echo "==> 辞書リソースを Contents/Resources へ同梱"
+find "$BIN_PATH" -path "*.bundle/*.bin" -exec cp {} "$APP_DIR/Contents/Resources/" \;
+
 # リリースバージョンの刻印。KOTO_VERSION（release workflow がタグから設定、
 # 例: 1.0.1）が指定されていれば Info.plist に反映する。署名前に行うこと。
 # 未指定でも HEAD がちょうどタグ上ならタグから補完する（ローカルのタグビルド用）。

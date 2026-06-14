@@ -34,14 +34,7 @@ public struct ConnectionMatrix: Sendable {
 
     /// 同梱 `connection.bin` をロードする。
     public static func bundled() throws -> ConnectionMatrix {
-        guard
-            let url = Bundle.module.url(forResource: "connection", withExtension: "bin")
-        else {
-            throw LoadError.resourceNotFound
-        }
-        guard let raw = try? Data(contentsOf: url) else {
-            throw LoadError.resourceNotFound
-        }
+        let raw = try BinaryResource.data(name: "connection", ext: "bin")
         return try decode(raw)
     }
 
@@ -56,15 +49,37 @@ public struct ConnectionMatrix: Sendable {
         inflated.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
             guard let base = buffer.baseAddress else { return }
             costs.withUnsafeMutableBytes { dst in
-                memcpy(dst.baseAddress!, base + 4, n * n * 2)
+                _ = memcpy(dst.baseAddress!, base + 4, n * n * 2)
             }
         }
         return ConnectionMatrix(size: n, costs: costs)
     }
 }
 
-/// 同梱バイナリリソースの共通処理（展開とリトルエンディアン読み出し）。
+/// 同梱バイナリリソースの共通処理（解決・展開・リトルエンディアン読み出し）。
 enum BinaryResource {
+    enum ResourceError: Error, Equatable { case notFound }
+
+    /// 同梱バイナリ（dictionary.bin / connection.bin 等）を解決して読み込む。
+    /// 配布 .app では Bundle.main（= Contents/Resources、build-koto-app.sh が
+    /// 配置）から、テスト / SwiftPM 実行では module リソースバンドルから探す。
+    /// Bundle.module はバンドルが見つからないと fatalError するため、先に
+    /// Bundle.main を試し、.app では Bundle.module に触れない（リソースの場所が
+    /// .build に依存して配布 .app がクラッシュする事故を防ぐ）。
+    static func data(name: String, ext: String) throws -> Data {
+        if let url = Bundle.main.url(forResource: name, withExtension: ext),
+            let data = try? Data(contentsOf: url)
+        {
+            return data
+        }
+        if let url = Bundle.module.url(forResource: name, withExtension: ext),
+            let data = try? Data(contentsOf: url)
+        {
+            return data
+        }
+        throw ResourceError.notFound
+    }
+
     /// raw DEFLATE（zlib/gzip ヘッダなし）を展開する。生成側 Python の
     /// `zlib.compressobj(wbits=-15)` と対称で、COMPRESSION_ZLIB が要求する
     /// 生 DEFLATE ストリームを復号する。

@@ -166,7 +166,7 @@ public struct MozcDictionary: Sendable {
     ) -> [(end: Int, entries: [Entry])] {
         var matches: [(end: Int, entries: [Entry])] = []
         var lo = 0
-        var hi = readingCount
+        let hi = readingCount
         // start の次の文字境界から順に終端を伸ばす。
         guard let startIdx = charBoundaries.firstIndex(of: start) else { return matches }
         var idx = startIdx + 1
@@ -222,14 +222,7 @@ public struct MozcDictionary: Sendable {
     // MARK: - ロード
 
     public static func bundled() throws -> MozcDictionary {
-        guard
-            let url = Bundle.module.url(forResource: "dictionary", withExtension: "bin")
-        else {
-            throw LoadError.resourceNotFound
-        }
-        guard let raw = try? Data(contentsOf: url) else {
-            throw LoadError.resourceNotFound
-        }
+        let raw = try BinaryResource.data(name: "dictionary", ext: "bin")
         guard let inflated = try? BinaryResource.inflate(raw) else {
             throw LoadError.decompressionFailed
         }
